@@ -1,5 +1,5 @@
 """
-工具函数：PDF处理 + 模型推理
+工具函数：PDF处理 + 模型推理 - Phase 2
 """
 import base64
 from pathlib import Path
@@ -53,10 +53,26 @@ def image_to_base64(image):
     return base64.b64encode(buffer.getvalue()).decode()
 
 
-def infer_single_image(image, prompt=None):
-    """单张图片推理"""
-    if prompt is None:
-        prompt = config.DEFAULT_PROMPT
+def infer_single_image(image, model_key, prompt, temperature, top_p, max_tokens):
+    """
+    单张图片推理（支持动态模型选择）
+    
+    Args:
+        image: PIL.Image 或文件路径
+        model_key: 模型配置键（config.MODELS 中的键）
+        prompt: 提示词
+        temperature: 温度参数
+        top_p: top_p 参数
+        max_tokens: 最大 token 数
+    
+    Returns:
+        str: Markdown 结果
+    """
+    # 获取模型配置
+    if model_key not in config.MODELS:
+        raise ValueError(f"未知的模型: {model_key}")
+    
+    model_config = config.MODELS[model_key]
     
     # 转换为 Base64
     img_base64 = image_to_base64(image)
@@ -64,13 +80,13 @@ def infer_single_image(image, prompt=None):
     # 初始化客户端
     client = OpenAI(
         api_key="dummy",
-        base_url=config.MODEL_API_BASE,
+        base_url=model_config["api_base"],
         timeout=120.0
     )
     
     # 调用 API
     response = client.chat.completions.create(
-        model=config.MODEL_ID,
+        model=model_config["model_id"],
         messages=[{
             "role": "user",
             "content": [
@@ -86,25 +102,35 @@ def infer_single_image(image, prompt=None):
                 }
             ]
         }],
-        max_tokens=config.MAX_TOKENS,
-        temperature=config.TEMPERATURE,
-        top_p=config.TOP_P
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p
     )
     
     return response.choices[0].message.content
 
 
-def process_document(file_path, progress=None):
+def process_document(file_path, model_key, prompt, temperature, top_p, max_tokens, progress=None):
     """
-    处理文档
+    处理文档（支持自定义参数）
     
-    ✅ 关键修复：使用 'is not None' 而不是直接 if progress
+    Args:
+        file_path: 文件路径
+        model_key: 模型键
+        prompt: 提示词
+        temperature: 温度
+        top_p: top_p
+        max_tokens: 最大 tokens
+        progress: Gradio Progress 对象
+    
+    Returns:
+        tuple: (图片列表, Markdown 结果)
     """
     file_path = Path(file_path)
     
     # 判断文件类型
     if file_path.suffix.lower() == '.pdf':
-        if progress is not None:  # ✅ 修复点
+        if progress is not None:
             progress(0, desc="Converting PDF...")
         images = pdf_to_images(file_path)
     else:
@@ -115,10 +141,17 @@ def process_document(file_path, progress=None):
     total = len(images)
     
     for i, img in enumerate(images):
-        if progress is not None:  # ✅ 修复点
+        if progress is not None:
             progress((i + 1) / total, desc=f"Processing page {i + 1}/{total}...")
         
-        result = infer_single_image(img)
+        result = infer_single_image(
+            img, 
+            model_key, 
+            prompt, 
+            temperature, 
+            top_p, 
+            max_tokens
+        )
         results.append(result)
     
     # 合并结果
@@ -151,3 +184,55 @@ def validate_file(file_path):
         return False, f"文件过大（{size_mb:.1f}MB），最大支持 {config.MAX_FILE_SIZE_MB}MB"
     
     return True, ""
+
+
+def get_model_choices():
+    """
+    获取模型选择列表（用于 Gradio Dropdown）
+    
+    Returns:
+        list: 模型显示名称列表
+    """
+    return [model["name"] for model in config.MODELS.values()]
+
+
+def get_model_key_from_name(model_name):
+    """
+    从显示名称获取模型键
+    
+    Args:
+        model_name: 模型显示名称
+    
+    Returns:
+        str: 模型键
+    """
+    for key, model in config.MODELS.items():
+        if model["name"] == model_name:
+            return key
+    return config.DEFAULT_MODEL
+
+
+def test_model_connection(model_key):
+    """
+    测试模型 API 连接
+    
+    Args:
+        model_key: 模型键
+    
+    Returns:
+        tuple: (是否成功, 消息)
+    """
+    try:
+        model_config = config.MODELS[model_key]
+        client = OpenAI(
+            api_key="dummy",
+            base_url=model_config["api_base"],
+            timeout=5.0
+        )
+        
+        # 简单测试
+        client.models.list()
+        return True, f"✅ {model_config['name']} 连接正常"
+    
+    except Exception as e:
+        return False, f"❌ {model_config['name']} 连接失败: {str(e)}"

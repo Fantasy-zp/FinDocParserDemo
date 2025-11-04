@@ -3,7 +3,7 @@ from openai import OpenAI
 
 client = OpenAI(
     api_key="dummy",
-    base_url="http://localhost:8001/v1"
+    base_url="http://localhost:8002/v1"
 )
 
 # 测试 1：列出模型

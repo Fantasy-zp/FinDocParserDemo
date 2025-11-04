@@ -20,7 +20,7 @@ img_base64 = base64.b64encode(buffer.getvalue()).decode()
 # 调用 API
 client = OpenAI(
     api_key="dummy",
-    base_url="http://localhost:8001/v1",
+    base_url="http://localhost:8002/v1",
     timeout=60.0
 )
 

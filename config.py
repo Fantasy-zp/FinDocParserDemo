@@ -1,20 +1,46 @@
 """
-FinDocParser 配置文件
+FinDocParser 配置文件 - Phase 2
 """
 
 # ============================================
-# 模型配置
+# 多模型配置
 # ============================================
-MODEL_NAME = "Qwen2.5-VL-3B (Fine-tuned)"
-MODEL_API_BASE = "http://localhost:8001/v1"
-MODEL_ID = "Qwen2.5-VL-3B"  # ✅ 使用 API 返回的 ID（占位符）
+MODELS = {
+    "qwen2_5vl_finetuned": {
+        "name": "Qwen2.5-VL-3B (Fine-tuned) ⭐",
+        "api_base": "http://localhost:8001/v1",
+        "model_id": "Qwen2.5-VL-3B",
+        "description": "微调后的模型，专为金融文档优化",
+        "max_tokens": 8192,
+        "recommended": True
+    },
+    "qwen2_5vl_base": {
+        "name": "Qwen2.5-VL-7B (Base)",
+        "api_base": "http://localhost:8002/v1",
+        "model_id": "Qwen2.5-VL-7B",
+        "description": "基础模型",
+        "max_tokens": 8192,
+        "recommended": False
+    },
+    "internvl2": {
+        "name": "InternVL2-8B",
+        "api_base": "http://localhost:8003/v1",
+        "model_id": "InternVL2-8B",
+        "description": "上海 AI Lab 的视觉语言模型",
+        "max_tokens": 4096,
+        "recommended": False
+    }
+}
+
+# 默认模型
+DEFAULT_MODEL = "qwen2_5vl_finetuned"
 
 # ============================================
-# 推理参数
+# 推理参数（可调节的默认值）
 # ============================================
-MAX_TOKENS = 8192
-TEMPERATURE = 0.1
-TOP_P = 0.7
+DEFAULT_TEMPERATURE = 0.0001
+DEFAULT_TOP_P = 0.3
+DEFAULT_MAX_TOKENS = 8192
 
 # ============================================
 # Prompt 模板
@@ -36,10 +62,9 @@ PDF_DPI = 200
 IMAGE_FORMAT = "PNG"
 
 # ============================================
-# 图像处理配置（关键！）
+# 图像处理配置
 # ============================================
-# Qwen2.5-VL 的图像分辨率限制
-IMAGE_MAX_PIXELS = 589824  # 768x768，与训练时一致
+IMAGE_MAX_PIXELS = 589824  # 768x768
 IMAGE_MIN_PIXELS = 1024    # 32x32
 
 # ============================================
@@ -50,6 +75,11 @@ DESCRIPTION = """
 Upload financial documents (PDF or images) to convert them into Markdown format.
 支持上传金融文档（PDF 或图片）并转换为 Markdown 格式。
 """
+
+# ============================================
+# Examples 配置
+# ============================================
+EXAMPLES_DIR = "examples"  # 示例文件目录
 
 # ============================================
 # 文件配置
