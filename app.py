@@ -73,6 +73,52 @@ with gr.Blocks(
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", 
                          Roboto, "Helvetica Neue", Arial, sans-serif !important;
         }
+        
+        /* ✅ Examples Gallery 优化 */
+        #example-gallery {
+            max-height: 600px;
+            overflow-y: auto;  /* 允许垂直滚动 */
+            overflow-x: hidden;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 12px;
+            background: #fafafa;
+        }
+        
+        /* 滚动条美化 */
+        #example-gallery::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        #example-gallery::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+        
+        #example-gallery::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 4px;
+        }
+        
+        #example-gallery::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        
+        /* Gallery 项样式 */
+        #example-gallery img {
+            border: 2px solid transparent;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            background: white;
+            padding: 4px;
+        }
+        
+        #example-gallery img:hover {
+            border-color: #3b82f6;
+            transform: scale(1.03);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
     """
 ) as demo:
     
@@ -187,26 +233,97 @@ with gr.Blocks(
                         language="markdown",
                         lines=20
                     )
-    
+
     # ============================================
-    # Examples
+    # Examples（优化版 - 清晰 + 可滚动）
     # ============================================
     gr.Markdown("---")
     gr.Markdown("### 📚 Examples")
-    
-    # 如果有 examples 目录，显示示例
+
     examples_dir = Path(config.EXAMPLES_DIR)
-    if examples_dir.exists():
-        example_files = list(examples_dir.glob("*.png")) + list(examples_dir.glob("*.pdf"))
+
+    if examples_dir.exists() and examples_dir.is_dir():
+        example_files = sorted(
+            list(examples_dir.glob("*.png")) + 
+            list(examples_dir.glob("*.jpg")) + 
+            list(examples_dir.glob("*.jpeg")) + 
+            list(examples_dir.glob("*.pdf"))
+        )
+        
         if example_files:
-            examples = gr.Examples(
-                examples=[
-                    [str(f), config.MODELS[config.DEFAULT_MODEL]["name"]]
-                    for f in example_files[:4]  # 最多显示 4 个
-                ],
-                inputs=[file_input, model_dropdown],
-                label="Click to load example"
-            )
+            from PIL import Image
+            import fitz
+            
+            preview_images = []
+            max_examples = min(12, len(example_files))  # 最多 12 个
+            
+            for f in example_files[:max_examples]:
+                try:
+                    if f.suffix.lower() == '.pdf':
+                        # ✅ 提高 PDF 缩略图分辨率
+                        doc = fitz.open(str(f))
+                        page = doc[0]
+                        # 使用固定 DPI 生成高质量缩略图
+                        zoom = 2.0  # 提高缩放比例（原来是隐式的低分辨率）
+                        mat = fitz.Matrix(zoom, zoom)
+                        pix = page.get_pixmap(matrix=mat, alpha=False)
+                        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                        doc.close()
+                        
+                        # 调整到合适大小（保持清晰度）
+                        max_size = 600  # 提高到 600px
+                        img.thumbnail((max_size, max_size), Image.LANCZOS)
+                        preview_images.append((img, f.stem))
+                    else:
+                        # ✅ 图片使用高质量缩放
+                        img = Image.open(f)
+                        if img.mode in ('RGBA', 'LA', 'P'):
+                            img = img.convert('RGB')
+                        
+                        # 高质量缩放
+                        max_size = 400
+                        img.thumbnail((max_size, max_size), Image.LANCZOS)
+                        preview_images.append((img, f.stem))
+                        
+                except Exception as e:
+                    print(f"⚠️  Failed to load example {f.name}: {e}")
+                    continue
+            
+            if preview_images:
+                gr.Markdown("*Click an example to load it*")
+                
+                # ✅ 改进 Gallery 配置
+                example_gallery = gr.Gallery(
+                    value=preview_images,
+                    label=None,
+                    show_label=False,
+                    columns=4,
+                    rows=2,  # 增加行数
+                    height="auto",  # ✅ 改为 auto，允许自适应
+                    object_fit="scale-down",  # ✅ 改为 scale-down 保持清晰度
+                    allow_preview=True,  # ✅ 允许预览大图
+                    show_download_button=False,
+                    container=True,  # ✅ 添加容器
+                    elem_id="example-gallery"
+                )
+                
+                # 点击事件
+                def load_example_file(evt: gr.SelectData):
+                    idx = evt.index
+                    if 0 <= idx < len(example_files):
+                        return str(example_files[idx]), config.MODELS[config.DEFAULT_MODEL]["name"]
+                    return None, None
+                
+                example_gallery.select(
+                    fn=load_example_file,
+                    outputs=[file_input, model_dropdown]
+                )
+            else:
+                gr.Markdown("*Failed to load example previews*")
+        else:
+            gr.Markdown("*No example files found in `examples/` directory*")
+    else:
+        gr.Markdown(f"*Examples directory not found: `{config.EXAMPLES_DIR}`*")
     
     # ============================================
     # 事件绑定

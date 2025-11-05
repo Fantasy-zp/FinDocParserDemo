@@ -104,7 +104,12 @@ def infer_single_image(image, model_key, prompt, temperature, top_p, max_tokens)
         }],
         max_tokens=max_tokens,
         temperature=temperature,
-        top_p=top_p
+        top_p=top_p,
+        extra_body={  # ✅ 添加这个
+        'repetition_penalty': 1.0,
+        'top_k': 50,
+        'skip_special_tokens': True,
+        }
     )
     
     return response.choices[0].message.content

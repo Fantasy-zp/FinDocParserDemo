@@ -9,7 +9,7 @@ MODELS = {
     "qwen2_5vl_finetuned": {
         "name": "Qwen2.5-VL-3B (Fine-tuned) ⭐",
         "api_base": "http://localhost:8001/v1",
-        "model_id": "Qwen2.5-VL-3B",
+        "model_id": "/data/cby/fix_ocrflux/框架对比/v1-20251016-163553/checkpoint-2380-merged",
         "description": "微调后的模型，专为金融文档优化",
         "max_tokens": 8192,
         "recommended": True
@@ -58,7 +58,7 @@ DEFAULT_PROMPT = """请根据图像中的文字内容，将其转换为规范的
 # ============================================
 # PDF 处理配置
 # ============================================
-PDF_DPI = 200
+PDF_DPI = 72
 IMAGE_FORMAT = "PNG"
 
 # ============================================
