@@ -86,3 +86,10 @@ EXAMPLES_DIR = "examples"  # 示例文件目录
 # ============================================
 ALLOWED_FILE_TYPES = [".pdf", ".png", ".jpg", ".jpeg"]
 MAX_FILE_SIZE_MB = 50
+
+# ============================================
+# Phase 3.1: 并行处理配置
+# ============================================
+PARALLEL_ENABLED = True  # 是否启用并行
+MAX_WORKERS = 4          # 最大并发线程数（推荐 2-8）
+PARALLEL_MIN_PAGES = 2   # 少于此页数不启用并行（单页直接处理）
