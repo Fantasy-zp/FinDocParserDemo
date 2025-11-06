@@ -1,5 +1,5 @@
 """
-工具函数：PDF处理 + 模型推理 - Phase 3.1 并行版本
+工具函数：PDF处理 + 模型推理 - Phase 3.2 流式版本
 """
 import base64
 from pathlib import Path
@@ -10,6 +10,7 @@ import config
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
+from typing import Generator, Dict, Any, List, Tuple
 
 
 def pdf_to_images(pdf_path):
@@ -38,7 +39,6 @@ def resize_image_if_needed(image):
         new_width = int(width * scale)
         new_height = int(height * scale)
         image = image.resize((new_width, new_height), Image.LANCZOS)
-        print(f"📏 Image resized: {width}x{height} -> {new_width}x{new_height}")
     
     return image
 
@@ -51,7 +51,6 @@ def image_to_base64(image):
     image = resize_image_if_needed(image)
     
     buffer = BytesIO()
-    # 使用 JPEG 压缩以减小传输大小
     if image.mode in ('RGBA', 'LA', 'P'):
         image = image.convert('RGB')
     image.save(buffer, format='JPEG', quality=85)
@@ -60,37 +59,19 @@ def image_to_base64(image):
 
 
 def infer_single_image(image, model_key, prompt, temperature, top_p, max_tokens):
-    """
-    单张图片推理
-    
-    Args:
-        image: PIL.Image 或文件路径
-        model_key: 模型配置键
-        prompt: 提示词
-        temperature: 温度参数
-        top_p: top_p 参数
-        max_tokens: 最大 token 数
-    
-    Returns:
-        str: Markdown 结果
-    """
-    # 获取模型配置
+    """单张图片推理"""
     if model_key not in config.MODELS:
         raise ValueError(f"未知的模型: {model_key}")
     
     model_config = config.MODELS[model_key]
-    
-    # 转换为 Base64
     img_base64 = image_to_base64(image)
     
-    # 初始化客户端
     client = OpenAI(
         api_key="dummy",
         base_url=model_config["api_base"],
         timeout=120.0
     )
     
-    # 调用 API
     response = client.chat.completions.create(
         model=model_config["model_id"],
         messages=[{
@@ -121,51 +102,238 @@ def infer_single_image(image, model_key, prompt, temperature, top_p, max_tokens)
     return response.choices[0].message.content
 
 
-# ============================================
-# Phase 3.1: 并行处理核心函数
-# ============================================
-
 def process_single_page_with_index(idx, image, model_key, prompt, temperature, top_p, max_tokens):
-    """
-    处理单页（带索引）- 供并行调用
-    
-    Args:
-        idx: 页码索引
-        image: 图像
-        其他参数同 infer_single_image
-    
-    Returns:
-        tuple: (idx, result, elapsed_time)
-    """
+    """处理单页（带索引）"""
     start_time = time.time()
     try:
         result = infer_single_image(image, model_key, prompt, temperature, top_p, max_tokens)
         elapsed = time.time() - start_time
-        print(f"✅ Page {idx + 1} completed in {elapsed:.2f}s")
         return (idx, result, elapsed, None)
     except Exception as e:
         elapsed = time.time() - start_time
-        print(f"❌ Page {idx + 1} failed in {elapsed:.2f}s: {str(e)}")
         return (idx, None, elapsed, str(e))
 
 
-def process_images_parallel(images, model_key, prompt, temperature, top_p, max_tokens, progress=None):
+# ============================================
+# Phase 3.2: 流式处理核心函数
+# ============================================
+
+def process_images_streaming(
+    images: List[Image.Image],
+    model_key: str,
+    prompt: str,
+    temperature: float,
+    top_p: float,
+    max_tokens: int
+) -> Generator[Dict[str, Any], None, None]:
     """
-    并行处理多张图片（Phase 3.1 核心）
+    流式并行处理图片（Phase 3.2 核心）
+    
+    每完成一页就立即返回结果
     
     Args:
         images: 图片列表
-        其他参数同上
-        progress: Gradio Progress 对象（可选）
+        其他参数: 模型推理参数
     
-    Returns:
-        list: 按顺序的推理结果列表
+    Yields:
+        {
+            "page_num": 1,           # 当前完成的页码
+            "total_pages": 10,       # 总页数
+            "result": "markdown",    # 当前页结果
+            "completed": 3,          # 已完成页数
+            "progress": 0.3,         # 进度 (0-1)
+            "elapsed": 15.2,         # 已用时间
+            "eta": 35.1,            # 预计剩余时间
+            "status": "✅ Page 3/10" # 状态文本
+        }
     """
     total = len(images)
+    completed_count = 0
+    elapsed_times = []
+    start_time = time.time()
     
-    # 单页直接处理，不启用并行
+    # 存储结果（保持顺序）
+    results = {}
+    
+    # 单页直接处理
     if total < config.PARALLEL_MIN_PAGES:
-        print(f"📄 Single page, using sequential processing")
+        for idx, img in enumerate(images):
+            page_start = time.time()
+            _, result, page_elapsed, error = process_single_page_with_index(
+                idx, img, model_key, prompt, temperature, top_p, max_tokens
+            )
+            
+            completed_count += 1
+            elapsed_times.append(page_elapsed)
+            results[idx] = result if error is None else f"Error: {error}"
+            
+            # 计算 ETA
+            avg_time = sum(elapsed_times) / len(elapsed_times)
+            remaining = total - completed_count
+            eta = avg_time * remaining
+            
+            # ✅ 立即返回当前页结果
+            yield {
+                "page_num": idx + 1,
+                "total_pages": total,
+                "result": results[idx],
+                "completed": completed_count,
+                "progress": completed_count / total,
+                "elapsed": time.time() - start_time,
+                "eta": eta,
+                "status": f"✅ Page {idx + 1}/{total} completed ({page_elapsed:.1f}s)"
+            }
+        return
+    
+    # 多页并行处理
+    with ThreadPoolExecutor(max_workers=config.MAX_WORKERS) as executor:
+        # 提交所有任务
+        future_to_idx = {
+            executor.submit(
+                process_single_page_with_index,
+                idx, img, model_key, prompt, temperature, top_p, max_tokens
+            ): idx
+            for idx, img in enumerate(images)
+        }
+        
+        # 实时收集结果
+        for future in as_completed(future_to_idx):
+            idx, result, page_elapsed, error = future.result()
+            completed_count += 1
+            elapsed_times.append(page_elapsed)
+            
+            # 保存结果
+            results[idx] = result if error is None else f"Error: {error}"
+            
+            # 计算统计信息
+            avg_time = sum(elapsed_times) / len(elapsed_times)
+            remaining = total - completed_count
+            eta = avg_time * remaining
+            total_elapsed = time.time() - start_time
+            
+            # ✅ 立即返回当前页结果
+            yield {
+                "page_num": idx + 1,
+                "total_pages": total,
+                "result": results[idx],
+                "completed": completed_count,
+                "progress": completed_count / total,
+                "elapsed": total_elapsed,
+                "eta": eta,
+                "status": f"✅ Page {idx + 1}/{total} completed ({page_elapsed:.1f}s, ETA: {eta:.1f}s)"
+            }
+
+
+def merge_results_ordered(results: Dict[int, str], total: int) -> str:
+    """
+    按顺序合并结果
+    
+    Args:
+        results: {页码索引: markdown结果}
+        total: 总页数
+    
+    Returns:
+        合并后的 markdown
+    """
+    ordered_results = []
+    for i in range(total):
+        if i in results:
+            ordered_results.append(f"## Page {i + 1}\n\n{results[i]}")
+        else:
+            ordered_results.append(f"## Page {i + 1}\n\n⏳ Processing...")
+    
+    return "\n\n---\n\n".join(ordered_results)
+
+
+def process_document_streaming(
+    file_path: str,
+    model_key: str,
+    prompt: str,
+    temperature: float,
+    top_p: float,
+    max_tokens: int
+) -> Generator[Tuple[List[Image.Image], str, str], None, None]:
+    """
+    流式处理文档（Phase 3.2 主接口）
+    
+    每完成一页就返回当前状态
+    
+    Args:
+        file_path: 文件路径
+        其他参数: 推理参数
+    
+    Yields:
+        (images, status, markdown)
+        - images: 已处理的图片列表
+        - status: 状态文本
+        - markdown: 当前累积的结果
+    """
+    file_path = Path(file_path)
+    
+    # 加载图片
+    if file_path.suffix.lower() == '.pdf':
+        images = pdf_to_images(file_path)
+    else:
+        images = [Image.open(file_path)]
+    
+    total = len(images)
+    
+    # 初始状态
+    yield (
+        images,
+        f"📄 Loaded {total} page(s), starting processing...",
+        ""
+    )
+    
+    # 收集所有结果
+    all_results = {}
+    
+    # 流式处理
+    for update in process_images_streaming(
+        images, model_key, prompt, temperature, top_p, max_tokens
+    ):
+        page_idx = update["page_num"] - 1
+        all_results[page_idx] = update["result"]
+        
+        # 构建状态文本
+        progress_bar = "█" * int(update["progress"] * 20) + "░" * (20 - int(update["progress"] * 20))
+        status = f"""🔄 Processing: {update['completed']}/{update['total_pages']} pages
+
+{progress_bar} {update['progress']*100:.1f}%
+
+⏱️  Elapsed: {update['elapsed']:.1f}s
+⏰ ETA: {update['eta']:.1f}s
+
+{update['status']}"""
+        
+        # 合并当前结果
+        if total == 1:
+            markdown = all_results.get(0, "")
+        else:
+            markdown = merge_results_ordered(all_results, total)
+        
+        # ✅ 返回当前状态
+        yield (images, status, markdown)
+    
+    # 最终状态
+    final_markdown = merge_results_ordered(all_results, total) if total > 1 else all_results.get(0, "")
+    
+    yield (
+        images,
+        f"✅ Completed! {total} page(s) processed successfully.",
+        final_markdown
+    )
+
+
+# ============================================
+# 保留原有接口（向下兼容）
+# ============================================
+
+def process_images_parallel(images, model_key, prompt, temperature, top_p, max_tokens, progress=None):
+    """并行处理（非流式，保留兼容）"""
+    total = len(images)
+    
+    if total < config.PARALLEL_MIN_PAGES:
         results = []
         for idx, img in enumerate(images):
             if progress is not None:
@@ -177,17 +345,11 @@ def process_images_parallel(images, model_key, prompt, temperature, top_p, max_t
             results.append(result if error is None else f"Error: {error}")
         return results
     
-    # 多页并行处理
-    print(f"🚀 Parallel processing with {config.MAX_WORKERS} workers")
-    
-    # 初始化结果数组（保持顺序）
     results = [None] * total
     completed_count = 0
     total_time = 0
     
-    # 使用线程池
     with ThreadPoolExecutor(max_workers=config.MAX_WORKERS) as executor:
-        # 提交所有任务
         future_to_idx = {
             executor.submit(
                 process_single_page_with_index,
@@ -196,19 +358,16 @@ def process_images_parallel(images, model_key, prompt, temperature, top_p, max_t
             for idx, img in enumerate(images)
         }
         
-        # 收集结果
         for future in as_completed(future_to_idx):
             idx, result, elapsed, error = future.result()
             completed_count += 1
             total_time += elapsed
             
-            # 保存结果
             if error is None:
                 results[idx] = result
             else:
                 results[idx] = f"Error on page {idx + 1}: {error}"
             
-            # 更新进度
             if progress is not None:
                 avg_time = total_time / completed_count
                 remaining = total - completed_count
@@ -218,54 +377,25 @@ def process_images_parallel(images, model_key, prompt, temperature, top_p, max_t
                     desc=f"Completed {completed_count}/{total} pages (ETA: {eta:.1f}s)"
                 )
     
-    # 统计信息
-    avg_time = total_time / total
-    print(f"\n{'='*60}")
-    print(f"📊 Parallel Processing Statistics:")
-    print(f"  Total pages: {total}")
-    print(f"  Total time: {total_time:.2f}s")
-    print(f"  Avg time per page: {avg_time:.2f}s")
-    print(f"  Workers used: {config.MAX_WORKERS}")
-    print(f"{'='*60}\n")
-    
     return results
 
 
 def process_document(file_path, model_key, prompt, temperature, top_p, max_tokens, progress=None):
-    """
-    处理文档（支持并行）
-    
-    Args:
-        file_path: 文件路径
-        model_key: 模型键
-        prompt: 提示词
-        temperature: 温度
-        top_p: top_p
-        max_tokens: 最大 tokens
-        progress: Gradio Progress 对象
-    
-    Returns:
-        tuple: (图片列表, Markdown 结果)
-    """
+    """处理文档（非流式，保留兼容）"""
     file_path = Path(file_path)
     
-    # 判断文件类型
     if file_path.suffix.lower() == '.pdf':
         if progress is not None:
             progress(0, desc="Converting PDF to images...")
         images = pdf_to_images(file_path)
-        print(f"📄 PDF converted: {len(images)} pages")
     else:
         images = [Image.open(file_path)]
-        print(f"🖼️  Single image loaded")
     
-    # ✅ 使用并行处理（如果启用）
     if config.PARALLEL_ENABLED:
         results = process_images_parallel(
             images, model_key, prompt, temperature, top_p, max_tokens, progress
         )
     else:
-        # 串行处理（保留作为备用）
         results = []
         for idx, img in enumerate(images):
             if progress is not None:
@@ -273,7 +403,6 @@ def process_document(file_path, model_key, prompt, temperature, top_p, max_token
             result = infer_single_image(img, model_key, prompt, temperature, top_p, max_tokens)
             results.append(result)
     
-    # 合并结果
     if len(results) > 1:
         markdown = "\n\n---\n\n".join([
             f"## Page {i + 1}\n\n{result}" 
