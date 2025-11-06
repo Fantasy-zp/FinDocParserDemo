@@ -17,15 +17,13 @@ def parse_document_streaming(
     custom_prompt
 ):
     """
-    流式解析文档（Phase 3.2）
-    
-    每完成一页就返回当前状态
+    流式解析文档（带缓存 - Phase 3.3）
     """
     try:
         # 验证文件
         is_valid, error_msg = utils.validate_file(file)
         if not is_valid:
-            yield None, f"❌ 错误：{error_msg}", ""
+            yield None, f"❌ 错误：{error_msg}", "", False
             return
         
         # 获取模型键
@@ -34,8 +32,8 @@ def parse_document_streaming(
         # 使用自定义 Prompt 或默认 Prompt
         prompt = custom_prompt.strip() if custom_prompt.strip() else config.DEFAULT_PROMPT
         
-        # ✅ 流式处理
-        for images, status, markdown in utils.process_document_streaming(
+        # ✅ 带缓存的流式处理
+        for images, status, markdown, from_cache in utils.process_document_streaming_with_cache(
             file, 
             model_key, 
             prompt,
@@ -43,6 +41,9 @@ def parse_document_streaming(
             top_p,
             max_tokens
         ):
+            # 添加缓存标识到状态
+            if from_cache:
+                status = "⚡ " + status
             yield images, status, markdown
         
     except Exception as e:
@@ -192,6 +193,17 @@ with gr.Blocks(
                     label="Custom Prompt (Optional)",
                     placeholder="留空使用默认 Prompt",
                     lines=4
+                )
+            # 缓存管理
+            with gr.Accordion("💾 Cache Management", open=False):
+                with gr.Row():
+                    cache_stats_btn = gr.Button("📊 View Stats", size="sm")
+                    clear_cache_btn = gr.Button("🧹 Clear Cache", size="sm", variant="stop")
+                
+                cache_info = gr.Textbox(
+                    label="Cache Information",
+                    interactive=False,
+                    lines=8
                 )
             
             # 解析按钮
@@ -354,7 +366,15 @@ with gr.Blocks(
         inputs=[markdown_preview],
         outputs=[markdown_source]
     )
-    
+    cache_stats_btn.click(
+        fn=utils.get_cache_stats,
+        outputs=[cache_info]
+    )
+
+    clear_cache_btn.click(
+        fn=utils.clear_cache,
+        outputs=[cache_info]
+    )
     # ============================================
     # 页脚
     # ============================================

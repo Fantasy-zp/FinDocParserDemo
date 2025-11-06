@@ -93,3 +93,13 @@ MAX_FILE_SIZE_MB = 50
 PARALLEL_ENABLED = True  # 是否启用并行
 MAX_WORKERS = 4          # 最大并发线程数（推荐 2-8）
 PARALLEL_MIN_PAGES = 2   # 少于此页数不启用并行（单页直接处理）
+
+
+# ============================================
+# Phase 3.3: 缓存配置
+# ============================================
+CACHE_ENABLED = True            # 是否启用缓存
+CACHE_DIR = "cache"             # 缓存目录
+CACHE_MEMORY_SIZE = 100         # 内存缓存容量（最多缓存100个文档）
+CACHE_DISK_SIZE_MB = 1000       # 磁盘缓存大小限制（1GB）
+CACHE_TTL_DAYS = 7              # 缓存有效期（7天）

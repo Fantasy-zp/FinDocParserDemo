@@ -11,6 +11,7 @@ from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 from typing import Generator, Dict, Any, List, Tuple
+from cache_manager import get_cache_manager
 
 
 def pdf_to_images(pdf_path):
@@ -462,3 +463,200 @@ def test_model_connection(model_key):
     
     except Exception as e:
         return False, f"❌ {model_config['name']} 连接失败: {str(e)}"
+
+# ============================================
+# Phase 3.3: 缓存配置
+# ============================================
+
+def process_document_with_cache(
+    file_path: str,
+    model_key: str,
+    prompt: str,
+    temperature: float,
+    top_p: float,
+    max_tokens: int
+) -> Tuple[List[Image.Image], str, bool]:
+    """
+    处理文档（带缓存）
+    
+    Returns:
+        (images, markdown, from_cache)
+        - images: 图片列表
+        - markdown: 结果
+        - from_cache: 是否来自缓存
+    """
+    if not config.CACHE_ENABLED:
+        # 缓存未启用，直接处理
+        images, markdown = process_document(
+            file_path, model_key, prompt, temperature, top_p, max_tokens
+        )
+        return images, markdown, False
+    
+    # 获取缓存管理器
+    cache_mgr = get_cache_manager()
+    
+    # 生成缓存键
+    cache_key = cache_mgr.generate_cache_key(
+        file_path, model_key, prompt, temperature, top_p, max_tokens
+    )
+    
+    # 尝试从缓存获取
+    cached_result = cache_mgr.get(cache_key)
+    
+    if cached_result is not None:
+        # 缓存命中
+        # 重新加载图片
+        file_path = Path(file_path)
+        if file_path.suffix.lower() == '.pdf':
+            images = pdf_to_images(file_path)
+        else:
+            images = [Image.open(file_path)]
+        
+        markdown = cached_result["markdown"]
+        return images, markdown, True
+    
+    # 缓存未命中，执行推理
+    images, markdown = process_document(
+        file_path, model_key, prompt, temperature, top_p, max_tokens
+    )
+    
+    # 保存到缓存
+    result = {
+        "markdown": markdown,
+        "metadata": {
+            "pages": len(images),
+            "model": model_key,
+            "timestamp": time.time()
+        }
+    }
+    
+    cache_mgr.set(
+        cache_key,
+        result,
+        Path(file_path).name,
+        model_key,
+        temperature,
+        top_p,
+        max_tokens
+    )
+    
+    return images, markdown, False
+
+
+def process_document_streaming_with_cache(
+    file_path: str,
+    model_key: str,
+    prompt: str,
+    temperature: float,
+    top_p: float,
+    max_tokens: int
+) -> Generator[Tuple[List[Image.Image], str, str, bool], None, None]:
+    """
+    流式处理文档（带缓存）
+    
+    Yields:
+        (images, status, markdown, from_cache)
+    """
+    if not config.CACHE_ENABLED:
+        # 缓存未启用，直接流式处理
+        for images, status, markdown in process_document_streaming(
+            file_path, model_key, prompt, temperature, top_p, max_tokens
+        ):
+            yield images, status, markdown, False
+        return
+    
+    # 获取缓存管理器
+    cache_mgr = get_cache_manager()
+    
+    # 生成缓存键
+    cache_key = cache_mgr.generate_cache_key(
+        file_path, model_key, prompt, temperature, top_p, max_tokens
+    )
+    
+    # 尝试从缓存获取
+    cached_result = cache_mgr.get(cache_key)
+    
+    if cached_result is not None:
+        # ✅ 缓存命中 - 立即返回
+        file_path_obj = Path(file_path)
+        if file_path_obj.suffix.lower() == '.pdf':
+            images = pdf_to_images(file_path_obj)
+        else:
+            images = [Image.open(file_path_obj)]
+        
+        markdown = cached_result["markdown"]
+        pages = cached_result["metadata"]["pages"]
+        
+        status = f"""⚡ Loaded from cache!
+
+📄 Pages: {pages}
+🔥 Response time: <0.1s
+💾 Cache hit!"""
+        
+        yield images, status, markdown, True
+        return
+    
+    # ❌ 缓存未命中 - 执行流式处理
+    all_results = {}
+    final_images = None
+    final_markdown = ""
+    
+    for images, status, markdown in process_document_streaming(
+        file_path, model_key, prompt, temperature, top_p, max_tokens
+    ):
+        final_images = images
+        final_markdown = markdown
+        yield images, status, markdown, False
+    
+    # 处理完成，保存到缓存
+    if final_images is not None:
+        result = {
+            "markdown": final_markdown,
+            "metadata": {
+                "pages": len(final_images),
+                "model": model_key,
+                "timestamp": time.time()
+            }
+        }
+        
+        cache_mgr.set(
+            cache_key,
+            result,
+            Path(file_path).name,
+            model_key,
+            temperature,
+            top_p,
+            max_tokens
+        )
+
+
+def get_cache_stats():
+    """获取缓存统计（供界面调用）"""
+    if not config.CACHE_ENABLED:
+        return "Cache disabled"
+    
+    cache_mgr = get_cache_manager()
+    stats = cache_mgr.get_stats()
+    
+    return f"""📊 Cache Statistics:
+    
+💾 Memory: {stats['memory_cache_size']} entries
+💽 Disk: {stats['disk_cache_count']} entries ({stats['disk_cache_size_mb']:.1f}MB)
+
+📈 Performance:
+  Total requests: {stats['total_requests']}
+  Memory hits: {stats['memory_hits']} ⚡
+  Disk hits: {stats['disk_hits']} 💾
+  Misses: {stats['misses']} ❌
+  
+🎯 Hit rate: {stats['hit_rate']}"""
+
+
+def clear_cache():
+    """清空缓存（供界面调用）"""
+    if not config.CACHE_ENABLED:
+        return "Cache disabled"
+    
+    cache_mgr = get_cache_manager()
+    cache_mgr.clear_all()
+    return "✅ Cache cleared successfully!"

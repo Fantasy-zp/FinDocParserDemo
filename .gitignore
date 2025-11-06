@@ -1,3 +1,5 @@
+cache/
+.gitignore
 # Python
 __pycache__/
 **/__pycache__/
