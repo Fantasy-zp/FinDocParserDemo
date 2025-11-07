@@ -1,6 +1,6 @@
 """
 FinDocParser - Phase 3.4 版本
-优化展示：美化界面 + 增强交互
+优化展示：美化界面 + 增强交互 + 中文化
 """
 import gradio as gr
 from pathlib import Path
@@ -88,16 +88,9 @@ def create_download_button(markdown, filename):
         transition: background 0.2s;
     " onmouseover="this.style.background='#2563eb'" 
        onmouseout="this.style.background='#3b82f6'">
-        📥 Download Markdown
+        📥 下载 Markdown
     </a>
     """
-
-
-def copy_to_clipboard(text):
-    """复制到剪贴板的反馈"""
-    if text:
-        return "✅ Copied to clipboard!"
-    return "⚠️ Nothing to copy"
 
 
 def test_model(model_name):
@@ -116,12 +109,13 @@ with gr.Blocks(
     css="""
         * {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", 
-                         Roboto, "Helvetica Neue", Arial, sans-serif !important;
+                         Roboto, "Helvetica Neue", Arial, "PingFang SC", 
+                         "Microsoft YaHei", sans-serif !important;
         }
         
         /* 状态框样式 */
         #status-box {
-            font-family: 'Courier New', monospace !important;
+            font-family: 'Courier New', 'Microsoft YaHei', monospace !important;
             background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
             border-left: 4px solid #3b82f6;
             padding: 16px;
@@ -250,40 +244,48 @@ with gr.Blocks(
         # 左侧：输入面板
         # ============================================
         with gr.Column(scale=4):
-            gr.Markdown("### 📄 Upload Document")
+            gr.Markdown("### 📄 上传文档")
             
             file_input = gr.File(
-                label="Upload PDF or Image",
+                label="上传 PDF 或图片",
                 file_types=config.ALLOWED_FILE_TYPES,
                 type="filepath"
             )
             
             # 模型选择
-            gr.Markdown("### 🤖 Model Selection")
+            gr.Markdown("### 🤖 模型选择")
             model_dropdown = gr.Dropdown(
                 choices=utils.get_model_choices(),
                 value=config.MODELS[config.DEFAULT_MODEL]["name"],
-                label="Select Model",
+                label="选择模型",
                 info="选择用于解析的模型"
             )
             
             # 测试模型按钮
             with gr.Row():
-                test_btn = gr.Button("🔍 Test Connection", size="sm", scale=1)
+                test_btn = gr.Button("🔍 测试连接", scale=1)
                 test_result = gr.Textbox(
                     show_label=False,
                     interactive=False,
                     scale=2,
-                    placeholder="Click to test model connection"
+                    placeholder="点击测试模型连接"
                 )
+            # test_btn = gr.Button("🔍 测试连接", size="lg", variant="secondary")
+            # test_result = gr.Textbox(
+            #     show_label=False,
+            #     interactive=False,
+            #     placeholder="点击测试模型连接",
+            #     lines=1
+            # )
+
             
             # 高级设置
-            with gr.Accordion("⚙️ Advanced Settings", open=False):
+            with gr.Accordion("⚙️ 高级设置", open=False):
                 temperature = gr.Slider(
                     0.0, 1.0, 
                     value=config.DEFAULT_TEMPERATURE,
                     step=0.0001,
-                    label="Temperature",
+                    label="温度参数",
                     info="较低值更确定，较高值更随机"
                 )
                 
@@ -299,31 +301,31 @@ with gr.Blocks(
                     1024, 16384,
                     value=config.DEFAULT_MAX_TOKENS,
                     step=1024,
-                    label="Max Tokens",
-                    info="最大生成长度"
+                    label="最大生成长度",
+                    info="最大 token 数量"
                 )
                 
                 custom_prompt = gr.Textbox(
-                    label="Custom Prompt (Optional)",
-                    placeholder="留空使用默认 Prompt",
+                    label="自定义提示词（可选）",
+                    placeholder="留空使用默认提示词",
                     lines=4
                 )
             
             # 缓存管理
-            with gr.Accordion("💾 Cache Management", open=False):
+            with gr.Accordion("💾 缓存管理", open=False):
                 with gr.Row():
-                    cache_stats_btn = gr.Button("📊 View Stats", size="sm")
-                    clear_cache_btn = gr.Button("🧹 Clear Cache", size="sm", variant="stop")
+                    cache_stats_btn = gr.Button("📊 查看统计", size="sm")
+                    clear_cache_btn = gr.Button("🧹 清空缓存", size="sm", variant="stop")
                 
                 cache_info = gr.Textbox(
-                    label="Cache Information",
+                    label="缓存信息",
                     interactive=False,
                     lines=8
                 )
             
             # 解析按钮
             parse_btn = gr.Button(
-                "🚀 Parse Document",
+                "🚀 开始解析",
                 variant="primary",
                 size="lg",
                 elem_classes="primary-button"
@@ -331,9 +333,9 @@ with gr.Blocks(
             
             # 状态显示
             status_box = gr.Textbox(
-                label="Status",
+                label="状态",
                 interactive=False,
-                placeholder="Ready to parse...",
+                placeholder="准备就绪，等待解析...",
                 lines=8,
                 elem_id="status-box"
             )
@@ -342,18 +344,18 @@ with gr.Blocks(
         # 右侧：输出面板
         # ============================================
         with gr.Column(scale=6):
-            gr.Markdown("### 📊 Results")
+            gr.Markdown("### 📊 解析结果")
             
             # 下载按钮（在标签页外）
             download_html = gr.HTML()
             
             with gr.Tabs():
-                with gr.Tab("📄 Original"):
+                with gr.Tab("📄 原始文档"):
                     original_gallery = gr.Gallery(
-                        label="Document Pages",
+                        label="文档页面",
                         columns=2,
-                        rows=None,  # ✅ 移除行数限制
-                        height=None,  # ✅ 自动高度
+                        rows=None,
+                        height=None,
                         object_fit="contain",
                         show_label=False,
                         elem_id="original-gallery",
@@ -361,38 +363,25 @@ with gr.Blocks(
                         preview=True
                     )
                 
-                with gr.Tab("👁️ Preview"):
-                    with gr.Row():
-                        copy_preview_btn = gr.Button("📋 Copy", size="sm")
-                    
+                with gr.Tab("👁️ 预览"):
                     markdown_preview = gr.Markdown(
                         value="",
                         elem_id="markdown-preview"
                     )
                 
-                with gr.Tab("</> Source"):
-                    with gr.Row():
-                        copy_source_btn = gr.Button("📋 Copy", size="sm")
-                    
+                with gr.Tab("</> 源码"):
                     markdown_source = gr.Code(
                         value="",
                         language="markdown",
-                        lines=30,  # ✅ 增加行数
+                        lines=30,
                         elem_id="markdown-source"
                     )
-            
-            # 复制反馈
-            copy_feedback = gr.Textbox(
-                show_label=False,
-                interactive=False,
-                visible=False
-            )
     
     # ============================================
     # Examples
     # ============================================
     gr.Markdown("---")
-    gr.Markdown("### 📚 Examples")
+    gr.Markdown("### 📚 示例文档")
     
     examples_dir = Path(config.EXAMPLES_DIR)
     
@@ -416,13 +405,13 @@ with gr.Blocks(
                     if f.suffix.lower() == '.pdf':
                         doc = fitz.open(str(f))
                         page = doc[0]
-                        zoom = 1.5
+                        zoom = 2
                         mat = fitz.Matrix(zoom, zoom)
                         pix = page.get_pixmap(matrix=mat, alpha=False)
                         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
                         doc.close()
                         
-                        max_size = 400
+                        max_size = 600
                         img.thumbnail((max_size, max_size), Image.LANCZOS)
                         preview_images.append((img, f.stem))
                     else:
@@ -435,19 +424,19 @@ with gr.Blocks(
                         preview_images.append((img, f.stem))
                         
                 except Exception as e:
-                    print(f"⚠️  Failed to load example {f.name}: {e}")
+                    print(f"⚠️  加载示例失败 {f.name}: {e}")
                     continue
             
             if preview_images:
-                gr.Markdown("*Click an example to load it*")
+                gr.Markdown("*点击示例文档即可加载*")
                 
                 example_gallery = gr.Gallery(
                     value=preview_images,
                     label=None,
                     show_label=False,
                     columns=4,
-                    rows=None,  # ✅ 移除行数限制
-                    height=None,  # ✅ 自动高度
+                    rows=None,
+                    height=None,
                     object_fit="scale-down",
                     allow_preview=True,
                     show_download_button=False,
@@ -466,11 +455,11 @@ with gr.Blocks(
                     outputs=[file_input, model_dropdown]
                 )
             else:
-                gr.Markdown("*Failed to load example previews*")
+                gr.Markdown("*加载示例预览失败*")
         else:
-            gr.Markdown("*No example files found in `examples/` directory*")
+            gr.Markdown(f"*在 `{config.EXAMPLES_DIR}` 目录中未找到示例文件*")
     else:
-        gr.Markdown(f"*Examples directory not found: `{config.EXAMPLES_DIR}`*")
+        gr.Markdown(f"*示例目录不存在：`{config.EXAMPLES_DIR}`*")
     
     # ============================================
     # 事件绑定
@@ -504,19 +493,6 @@ with gr.Blocks(
         outputs=[markdown_source]
     )
     
-    # 复制功能
-    copy_preview_btn.click(
-        fn=copy_to_clipboard,
-        inputs=[markdown_preview],
-        outputs=[copy_feedback]
-    )
-    
-    copy_source_btn.click(
-        fn=copy_to_clipboard,
-        inputs=[markdown_source],
-        outputs=[copy_feedback]
-    )
-    
     # 缓存管理
     cache_stats_btn.click(
         fn=utils.get_cache_stats,
@@ -534,31 +510,29 @@ with gr.Blocks(
     gr.Markdown("---")
     gr.Markdown(
         """
-        💡 **Tips:** 
-        - ✅ 支持 PDF 和图片文件
+        💡 **使用提示：** 
+        - ✅ 支持 多页PDF 和图片文件
         - ✅ 实时显示处理进度和结果
         - ✅ 支持下载 Markdown 文件
-        - ✅ 支持复制到剪贴板
         - ✅ 智能缓存，重复文档秒返回
-        - 🚀 Phase 3.4: 优化展示 + 增强交互
         """
     )
 
 
 if __name__ == "__main__":
-    print("🚀 Starting FinDocParser Demo - Phase 3.4...")
-    print(f"🌐 Interface: http://localhost:7860")
-    print(f"📋 Available models: {len(config.MODELS)}")
+    print("🚀 启动 FinDocParser Demo - Phase 3.4...")
+    print(f"🌐 访问地址: http://localhost:7860")
+    print(f"📋 可用模型数量: {len(config.MODELS)}")
     for key, model in config.MODELS.items():
         print(f"  - {model['name']}: {model['api_base']}")
     print("\n" + "="*80)
-    print("✨ Phase 3.4 Features:")
+    print("✨ Phase 3.4 功能:")
     print("  - 📄 Gallery 无限滚动（支持任意页数）")
     print("  - 📥 Markdown 下载功能")
-    print("  - 📋 一键复制到剪贴板")
     print("  - 🎨 美化界面样式")
     print("  - 📱 响应式布局")
     print("  - ⚡ 优化加载体验")
+    print("  - 🇨🇳 完整中文界面")
     print("="*80 + "\n")
     
     demo.launch(

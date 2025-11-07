@@ -128,26 +128,12 @@ def process_images_streaming(
     max_tokens: int
 ) -> Generator[Dict[str, Any], None, None]:
     """
-    流式并行处理图片（Phase 3.2 核心）
+    流式并行处理图片（Phase 3.4 优化版 - 单页实时反馈增强）
     
-    每完成一页就立即返回结果
-    
-    Args:
-        images: 图片列表
-        其他参数: 模型推理参数
-    
-    Yields:
-        {
-            "page_num": 1,           # 当前完成的页码
-            "total_pages": 10,       # 总页数
-            "result": "markdown",    # 当前页结果
-            "completed": 3,          # 已完成页数
-            "progress": 0.3,         # 进度 (0-1)
-            "elapsed": 15.2,         # 已用时间
-            "eta": 35.1,            # 预计剩余时间
-            "status": "✅ Page 3/10" # 状态文本
-        }
+    单页处理时会实时更新已用时间
     """
+    import threading
+    
     total = len(images)
     completed_count = 0
     elapsed_times = []
@@ -156,39 +142,81 @@ def process_images_streaming(
     # 存储结果（保持顺序）
     results = {}
     
-    # 单页直接处理
+    # 单页直接处理（✅ 添加实时进度更新）
     if total < config.PARALLEL_MIN_PAGES:
         for idx, img in enumerate(images):
-            page_start = time.time()
-            _, result, page_elapsed, error = process_single_page_with_index(
-                idx, img, model_key, prompt, temperature, top_p, max_tokens
-            )
+            # 用于线程间通信
+            result_container = {"result": None, "elapsed": 0, "error": None, "done": False}
             
+            # ✅ 在独立线程中执行推理
+            def inference_thread():
+                page_start = time.time()
+                try:
+                    _, result, page_elapsed, error = process_single_page_with_index(
+                        idx, img, model_key, prompt, temperature, top_p, max_tokens
+                    )
+                    result_container["result"] = result
+                    result_container["elapsed"] = page_elapsed
+                    result_container["error"] = error
+                except Exception as e:
+                    result_container["error"] = str(e)
+                finally:
+                    result_container["done"] = True
+            
+            # 启动推理线程
+            thread = threading.Thread(target=inference_thread, daemon=True)
+            thread.start()
+            
+            # ✅ 主线程定期更新状态（每0.5秒）
+            page_start_time = time.time()
+            while not result_container["done"]:
+                elapsed = time.time() - page_start_time
+                
+                # 模拟进度（基于时间估算）
+                # 假设平均每页 5-10 秒，用脉搏动画
+                pulse = int((elapsed * 2) % 20)  # 0-19 循环
+                progress_bar = "█" * pulse + "░" * (20 - pulse)
+                
+                yield {
+                    "page_num": idx + 1,
+                    "total_pages": total,
+                    "result": None,
+                    "completed": completed_count,
+                    "progress": 0,
+                    "elapsed": elapsed,
+                    "eta": 0,
+                    "status": f"⏳ 正在处理第 {idx + 1}/{total} 页..."
+                }
+                
+                time.sleep(0.5)  # 每0.5秒更新一次
+            
+            # ✅ 等待线程完成
+            thread.join(timeout=1)
+            
+            # 处理结果
             completed_count += 1
-            elapsed_times.append(page_elapsed)
-            results[idx] = result if error is None else f"Error: {error}"
+            elapsed_times.append(result_container["elapsed"])
             
-            # 计算 ETA
-            avg_time = sum(elapsed_times) / len(elapsed_times)
-            remaining = total - completed_count
-            eta = avg_time * remaining
+            if result_container["error"] is None:
+                results[idx] = result_container["result"]
+            else:
+                results[idx] = f"Error: {result_container['error']}"
             
-            # ✅ 立即返回当前页结果
+            # ✅ 返回完成状态
             yield {
                 "page_num": idx + 1,
                 "total_pages": total,
                 "result": results[idx],
                 "completed": completed_count,
-                "progress": completed_count / total,
-                "elapsed": time.time() - start_time,
-                "eta": eta,
-                "status": f"✅ Page {idx + 1}/{total} completed ({page_elapsed:.1f}s)"
+                "progress": 1.0,
+                "elapsed": result_container["elapsed"],
+                "eta": 0,
+                "status": f"✅ 第 {idx + 1}/{total} 页完成 ({result_container['elapsed']:.1f}s)"
             }
         return
     
-    # 多页并行处理
+    # 多页并行处理（保持不变）
     with ThreadPoolExecutor(max_workers=config.MAX_WORKERS) as executor:
-        # 提交所有任务
         future_to_idx = {
             executor.submit(
                 process_single_page_with_index,
@@ -197,22 +225,18 @@ def process_images_streaming(
             for idx, img in enumerate(images)
         }
         
-        # 实时收集结果
         for future in as_completed(future_to_idx):
             idx, result, page_elapsed, error = future.result()
             completed_count += 1
             elapsed_times.append(page_elapsed)
             
-            # 保存结果
-            results[idx] = result if error is None else f"Error: {error}"
+            results[idx] = result if error is None else f"Error on page {idx + 1}: {error}"
             
-            # 计算统计信息
             avg_time = sum(elapsed_times) / len(elapsed_times)
             remaining = total - completed_count
             eta = avg_time * remaining
             total_elapsed = time.time() - start_time
             
-            # ✅ 立即返回当前页结果
             yield {
                 "page_num": idx + 1,
                 "total_pages": total,
@@ -221,9 +245,8 @@ def process_images_streaming(
                 "progress": completed_count / total,
                 "elapsed": total_elapsed,
                 "eta": eta,
-                "status": f"✅ Page {idx + 1}/{total} completed ({page_elapsed:.1f}s, ETA: {eta:.1f}s)"
+                "status": f"✅ 第 {idx + 1}/{total} 页完成 ({page_elapsed:.1f}s, 预计剩余: {eta:.1f}s)"
             }
-
 
 def merge_results_ordered(results: Dict[int, str], total: int) -> str:
     """
@@ -552,23 +575,19 @@ def process_document_streaming_with_cache(
     max_tokens: int
 ) -> Generator[Tuple[List[Image.Image], str, str, bool], None, None]:
     """
-    流式处理文档（带缓存）
+    流式处理文档（带缓存 - Phase 3.4 优化版 - 实时进度更新）
     
     Yields:
         (images, status, markdown, from_cache)
     """
     if not config.CACHE_ENABLED:
-        # 缓存未启用，直接流式处理
         for images, status, markdown in process_document_streaming(
             file_path, model_key, prompt, temperature, top_p, max_tokens
         ):
             yield images, status, markdown, False
         return
     
-    # 获取缓存管理器
     cache_mgr = get_cache_manager()
-    
-    # 生成缓存键
     cache_key = cache_mgr.generate_cache_key(
         file_path, model_key, prompt, temperature, top_p, max_tokens
     )
@@ -577,7 +596,7 @@ def process_document_streaming_with_cache(
     cached_result = cache_mgr.get(cache_key)
     
     if cached_result is not None:
-        # ✅ 缓存命中 - 立即返回
+        # 缓存命中
         file_path_obj = Path(file_path)
         if file_path_obj.suffix.lower() == '.pdf':
             images = pdf_to_images(file_path_obj)
@@ -587,33 +606,120 @@ def process_document_streaming_with_cache(
         markdown = cached_result["markdown"]
         pages = cached_result["metadata"]["pages"]
         
-        status = f"""⚡ Loaded from cache!
+        status = f"""⚡ 从缓存加载！
 
-📄 Pages: {pages}
-🔥 Response time: <0.1s
-💾 Cache hit!"""
+████████████████████ 100%
+
+📄 页数: {pages} 页
+🔥 响应时间: <0.1s
+💾 缓存命中！"""
         
         yield images, status, markdown, True
         return
     
-    # ❌ 缓存未命中 - 执行流式处理
+    # 缓存未命中 - 执行流式处理
+    file_path_obj = Path(file_path)
+    
+    if file_path_obj.suffix.lower() == '.pdf':
+        images = pdf_to_images(file_path_obj)
+    else:
+        images = [Image.open(file_path_obj)]
+    
+    total = len(images)
+    start_time = time.time()
+    
+    # 初始状态
+    initial_status = f"📄 已加载 {total} 页，开始处理..."
+    yield (images, initial_status, "", False)
+    
+    # 收集所有结果
     all_results = {}
-    final_images = None
-    final_markdown = ""
     
-    for images, status, markdown in process_document_streaming(
-        file_path, model_key, prompt, temperature, top_p, max_tokens
+    # 流式处理
+    for update in process_images_streaming(
+        images, model_key, prompt, temperature, top_p, max_tokens
     ):
-        final_images = images
-        final_markdown = markdown
-        yield images, status, markdown, False
+        page_idx = update["page_num"] - 1
+        
+        if update["result"] is not None:
+            all_results[page_idx] = update["result"]
+        
+        # ✅ 构建状态文本（实时更新版）
+        if total == 1:
+            # 单页的状态显示
+            if update["completed"] == 0:
+                # ✅ 处理中（实时更新时间）
+                # 使用脉搏动画而不是固定进度
+                pulse = int((update["elapsed"] * 2) % 20)
+                progress_bar = "█" * pulse + "░" * (20 - pulse)
+                
+                status = f"""⏳ 正在处理...
+
+{progress_bar}
+
+⏱️  已用时间: {update['elapsed']:.1f}s
+
+{update['status']}"""
+            else:
+                # 完成
+                progress_bar = "█" * 20
+                status = f"""✅ 处理完成！
+
+{progress_bar} 100%
+
+⏱️  处理时间: {update['elapsed']:.1f}s
+
+{update['status']}"""
+        else:
+            # 多页的状态显示
+            progress_bar = "█" * int(update["progress"] * 20) + "░" * (20 - int(update["progress"] * 20))
+            status = f"""🔄 处理中: {update['completed']}/{update['total_pages']} 页
+
+{progress_bar} {update['progress']*100:.1f}%
+
+⏱️  已用时间: {update['elapsed']:.1f}s
+⏰ 预计剩余: {update['eta']:.1f}s
+
+{update['status']}"""
+        
+        # 合并当前结果
+        if total == 1:
+            if 0 in all_results:
+                markdown = all_results[0]
+            else:
+                markdown = "⏳ 正在处理中..."
+        else:
+            markdown = merge_results_ordered(all_results, total)
+        
+        yield (images, status, markdown, False)
     
-    # 处理完成，保存到缓存
-    if final_images is not None:
+    # 处理完成
+    final_markdown = merge_results_ordered(all_results, total) if total > 1 else all_results.get(0, "")
+    total_elapsed = time.time() - start_time
+    
+    if total == 1:
+        final_status = f"""✅ 解析完成！
+
+████████████████████ 100%
+
+📄 页数: 1 页
+⏱️  处理时间: {total_elapsed:.1f}s
+💾 已保存到缓存"""
+    else:
+        final_status = f"""✅ 解析完成！
+
+████████████████████ 100%
+
+📄 总页数: {total} 页
+⏱️  总耗时: {total_elapsed:.1f}s
+💾 已保存到缓存"""
+    
+    # 保存到缓存
+    if images is not None:
         result = {
             "markdown": final_markdown,
             "metadata": {
-                "pages": len(final_images),
+                "pages": len(images),
                 "model": model_key,
                 "timestamp": time.time()
             }
@@ -622,12 +728,14 @@ def process_document_streaming_with_cache(
         cache_mgr.set(
             cache_key,
             result,
-            Path(file_path).name,
+            file_path_obj.name,
             model_key,
             temperature,
             top_p,
             max_tokens
         )
+    
+    yield (images, final_status, final_markdown, False)
 
 
 def get_cache_stats():

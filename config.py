@@ -7,29 +7,21 @@ FinDocParser 配置文件 - Phase 2
 # ============================================
 MODELS = {
     "qwen2_5vl_finetuned": {
-        "name": "Qwen2.5-VL-3B (Fine-tuned) ⭐",
+        "name": "FinDocParserV1 ⭐",
         "api_base": "http://localhost:8001/v1",
-        "model_id": "/data/cby/fix_ocrflux/框架对比/v1-20251016-163553/checkpoint-2380-merged",
+        "model_id": "/data/cby/联合训练/chectpoint/第二版数据/内容+跨页/15epoch/v1-20251105-145645/checkpoint-500-merged",
         "description": "微调后的模型，专为金融文档优化",
         "max_tokens": 8192,
         "recommended": True
     },
     "qwen2_5vl_base": {
-        "name": "Qwen2.5-VL-7B (Base)",
+        "name": "Qwen2.5-VL-3B (Base)",
         "api_base": "http://localhost:8002/v1",
-        "model_id": "Qwen2.5-VL-7B",
+        "model_id": "Qwen2.5-VL-3B",
         "description": "基础模型",
         "max_tokens": 8192,
         "recommended": False
     },
-    "internvl2": {
-        "name": "InternVL2-8B",
-        "api_base": "http://localhost:8003/v1",
-        "model_id": "InternVL2-8B",
-        "description": "上海 AI Lab 的视觉语言模型",
-        "max_tokens": 4096,
-        "recommended": False
-    }
 }
 
 # 默认模型
@@ -58,7 +50,7 @@ DEFAULT_PROMPT = """请根据图像中的文字内容，将其转换为规范的
 # ============================================
 # PDF 处理配置
 # ============================================
-PDF_DPI = 72
+PDF_DPI = 200
 IMAGE_FORMAT = "PNG"
 
 # ============================================
@@ -70,9 +62,8 @@ IMAGE_MIN_PIXELS = 1024    # 32x32
 # ============================================
 # 界面配置
 # ============================================
-TITLE = "📊 FinDocParser Demo"
+TITLE = "📊 FinDocParserV1 Demo"
 DESCRIPTION = """
-Upload financial documents (PDF or images) to convert them into Markdown format.
 支持上传金融文档（PDF 或图片）并转换为 Markdown 格式。
 """
 
