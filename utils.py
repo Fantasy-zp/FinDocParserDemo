@@ -81,7 +81,8 @@ def infer_single_image(image, model_key, prompt, temperature, top_p, max_tokens)
                 {
                     "type": "image_url",
                     "image_url": {
-                        "url": f"data:image/jpeg;base64,{img_base64}"
+                        "url": f"data:image/jpeg;base64,{img_base64}",
+                        "detail": "high"
                     }
                 },
                 {
@@ -99,9 +100,159 @@ def infer_single_image(image, model_key, prompt, temperature, top_p, max_tokens)
             'skip_special_tokens': True,
         }
     )
-    
-    return response.choices[0].message.content
+    # 获取返回内容
+    result = response.choices[0].message.content
 
+    # ✅ 添加 JSON 格式判断和提取
+    result = extract_markdown_from_result(result)
+    
+    return result
+
+# ✅ 添加新函数：提取 markdown 内容
+def extract_markdown_from_result(result: str) -> str:
+    """
+    从 API 返回结果中提取 markdown 内容（完整增强版）
+    
+    支持：
+    1. 完整 JSON → json.loads 解析
+    2. 不完整 JSON → 正则提取
+    3. 纯 Markdown → 直接返回
+    """
+    import json
+    import re
+    
+    original_result = result
+    result = result.strip()
+    
+    # 快速排除：明显不是 JSON
+    if not result.startswith('{'):
+        return original_result
+    
+    # 检查是否包含 natural_text 字段
+    if '"natural_text"' not in result:
+        print("ℹ️  JSON 格式但不包含 natural_text 字段")
+        return original_result
+    
+    # ============================================
+    # 尝试 1：完整 JSON 解析
+    # ============================================
+    try:
+        data = json.loads(result)
+        
+        if isinstance(data, dict) and 'natural_text' in data:
+            markdown_text = data['natural_text']
+            print(f"✅ 从完整 JSON 提取 natural_text (长度: {len(markdown_text)} 字符)")
+            return f"{markdown_text}\n\n<!-- RAW_OUTPUT_START\n{original_result}\nRAW_OUTPUT_END -->"
+        else:
+            print(f"⚠️  JSON 解析成功但结构不符合预期")
+            return original_result
+            
+    except json.JSONDecodeError as e:
+        # ============================================
+        # 尝试 2：从不完整 JSON 中正则提取
+        # ============================================
+        print(f"⚠️  JSON 不完整，尝试正则提取...")
+        print(f"   错误信息: {str(e)}")
+        print(f"   最后 50 字符: ...{result[-50:]}")
+        
+        # 用正则提取 natural_text 的值
+        extracted = extract_natural_text_by_regex(result)
+        
+        if extracted:
+            print(f"⚡ 成功从不完整 JSON 中提取 {len(extracted)} 字符")
+            
+            # 添加截断警告
+            # warning = "\n\n---\n⚠️ **警告**：输出被截断（达到 Max Tokens 限制），内容可能不完整。建议增加 Max Tokens 参数。"
+            
+            return f"{extracted}\n\n<!-- RAW_OUTPUT_START\n{original_result}\nRAW_OUTPUT_END -->"
+        else:
+            print(f"❌ 无法从不完整 JSON 中提取 natural_text")
+            return f"⚠️ **解析失败**：输出被截断且无法提取内容。\n\n**建议**：\n1. 增加 Max Tokens 到 16384\n2. 简化文档或分页处理\n\n**原始输出**：\n```\n{original_result[:500]}...\n```"
+
+
+def extract_natural_text_by_regex(incomplete_json: str) -> str:
+    """
+    用正则从不完整的 JSON 中提取 natural_text 的值
+    
+    Args:
+        incomplete_json: 不完整的 JSON 字符串
+    
+    Returns:
+        提取的 markdown 内容（可能不完整）
+    """
+    import re
+    
+    # 匹配模式（按优先级尝试）
+    patterns = [
+        # 模式 1：完整的值（带结束引号和逗号/右括号）
+        r'"natural_text"\s*:\s*"((?:[^"\\]|\\.)*)"',
+        
+        # 模式 2：不完整的值（没有结束引号，直到字符串末尾）
+        r'"natural_text"\s*:\s*"((?:[^"\\]|\\.)*?)(?:$|")',
+    ]
+    
+    for i, pattern in enumerate(patterns, 1):
+        match = re.search(pattern, incomplete_json, re.DOTALL)
+        
+        if match:
+            content = match.group(1)
+            
+            # 处理 JSON 转义字符
+            content = unescape_json_string(content)
+            
+            print(f"   ✅ 正则模式 {i} 匹配成功")
+            return content.strip()
+    
+    return ""
+
+
+def unescape_json_string(s: str) -> str:
+    """处理 JSON 字符串中的转义字符"""
+    # 按顺序处理（顺序很重要）
+    replacements = [
+        ('\\n', '\n'),   # 换行
+        ('\\t', '\t'),   # 制表符
+        ('\\r', '\r'),   # 回车
+        ('\\"', '"'),    # 引号
+        ('\\/', '/'),    # 斜杠
+        ('\\\\', '\\'),  # 反斜杠（最后处理）
+    ]
+    
+    for old, new in replacements:
+        s = s.replace(old, new)
+    
+    return s
+
+# def extract_markdown_from_result(result: str) -> str:
+#     """增强版：支持多种提取策略"""
+#     import json
+    
+#     result = result.strip()
+    
+#     # 策略 1：JSON 格式
+#     if result.startswith('{') and result.endswith('}'):
+#         try:
+#             data = json.loads(result)
+            
+#             if isinstance(data, dict):
+#                 # 优先级：natural_text > text > content > markdown
+#                 for key in ['natural_text', 'text', 'content', 'markdown']:
+#                     if key in data:
+#                         print(f"✅ 从 JSON 提取字段: {key}")
+#                         return data[key]
+#         except json.JSONDecodeError:
+#             pass
+    
+#     # 策略 2：Markdown 代码块
+#     if '```markdown' in result:
+#         import re
+#         match = re.search(r'```markdown\n(.*?)\n```', result, re.DOTALL)
+#         if match:
+#             print("✅ 从 markdown 代码块提取")
+#             return match.group(1)
+    
+#     # 默认：返回原始结果
+#     return result
 
 def process_single_page_with_index(idx, image, model_key, prompt, temperature, top_p, max_tokens):
     """处理单页（带索引）"""

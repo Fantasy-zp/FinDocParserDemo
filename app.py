@@ -10,6 +10,91 @@ import base64
 from io import BytesIO
 
 
+def split_markdown_and_raw(combined_markdown):
+    """
+    分离处理后的 markdown 和原始输出
+    
+    Args:
+        combined_markdown: 可能包含隐藏原始内容的 markdown
+    
+    Returns:
+        (markdown_for_preview, raw_for_source)
+    """
+    # 检查是否为空
+    if not combined_markdown or not isinstance(combined_markdown, str):
+        return "", ""
+    
+    # 检查是否包含隐藏的原始内容
+    if "<!-- RAW_OUTPUT_START" in combined_markdown and "RAW_OUTPUT_END -->" in combined_markdown:
+        try:
+            # 分离干净的 markdown
+            parts = combined_markdown.split("<!-- RAW_OUTPUT_START")
+            markdown_clean = parts[0].strip()
+            
+            # 提取原始内容
+            raw_section = parts[1].split("RAW_OUTPUT_END -->")[0]
+            raw_content = raw_section.strip()
+            print(f"✅ 成功分离 - Markdown: {len(markdown_clean)} 字符, Raw: {len(raw_content)} 字符")
+
+            # ✅ 返回两个值
+            return markdown_clean, raw_content
+        except Exception as e:
+            print(f"⚠️  分离内容时出错: {e}")
+            return combined_markdown, combined_markdown
+    
+    # 没有隐藏内容，Preview 和 Source 显示相同
+    return combined_markdown, combined_markdown
+
+
+# 在文件开头添加函数
+def get_logo_html():
+    """生成 Logo HTML"""
+    logo_path = "assets/logo.png"
+    
+    try:
+        with open(logo_path, "rb") as f:
+            img_data = base64.b64encode(f.read()).decode()
+        
+        return f"""
+        <div style='
+            display: flex;
+            flex-direction: row; /* 水平布局 */
+            align-items: center;
+            justify-content: flex-start;
+            padding: 0;
+            margin-top: 0px; /* 减少顶部间距 */
+        '>
+            <img src='data:image/jpeg;base64,{img_data}' 
+                 alt='建设银行' 
+                 style='
+                     width: 30px; 
+                     height: 30px; 
+                     object-fit: contain;
+                     margin-right: 10px; /* 图片右侧间距 */
+                 '/>
+            <p style='
+                font-size: 15px; 
+                color: #555; 
+                margin: 0;
+                font-weight: 500;
+                line-height: 1.3;
+                text-align: left; /* 文字左对齐 */
+            '>
+                <strong>集团金融科技创新中心</strong>
+            </p>
+        </div>
+        """
+    except Exception as e:
+        print(f"⚠️  加载 Logo 失败: {e}")
+        return """
+        <div style='display: flex; flex-direction: row; align-items: center; padding: 0; margin-top: -15px;'>
+            <p style='font-size: 45px; margin: 0 10px 0 0;'>🏦</p>
+            <p style='font-size: 11px; color: #555; margin: 0; line-height: 1.3; text-align: left;'>
+                集团金融科技创新中心
+            </p>
+        </div>
+        """
+
 def parse_document_streaming(
     file, 
     model_name,
@@ -68,12 +153,15 @@ def parse_document_streaming(
 
 
 def create_download_button(markdown, filename):
-    """创建下载按钮的 HTML"""
+    """创建下载按钮的 HTML（只下载干净的 markdown）"""
     if not markdown:
         return None
     
+    # ✅ 使用已有函数清理内容
+    clean_markdown, _ = split_markdown_and_raw(markdown)
+    
     # 创建可下载的文件
-    b64 = base64.b64encode(markdown.encode()).decode()
+    b64 = base64.b64encode(clean_markdown.encode()).decode()
     href = f'data:text/markdown;base64,{b64}'
     
     return f"""
@@ -226,18 +314,35 @@ with gr.Blocks(
             animation: spin 1s linear infinite;
         }
         
+        /* Logo 容器样式 */
+        #logo-container {
+            margin-top: -5px; /* 进一步减少顶部间距 */
+        }
+        
         /* 响应式布局 */
         @media (max-width: 768px) {
             #original-gallery img {
                 max-height: 400px;
             }
+            
+            /* 响应式：移动端 Logo 居中 */
+            #logo-container {
+                margin-top: 0;
+            }
         }
     """
 ) as demo:
-    
-    # 标题
-    gr.Markdown(f"# {config.TITLE}")
-    gr.Markdown(config.DESCRIPTION)
+
+    # 标题和 Logo
+    with gr.Row(equal_height=False):
+        # 左侧：标题和描述
+        with gr.Column(scale=8):
+            gr.Markdown(f"# {config.TITLE}")
+            gr.Markdown(config.DESCRIPTION)
+        
+        # 右侧：Logo 和说明
+        with gr.Column(scale=2, min_width=100, elem_id="logo-container"):
+            gr.HTML(get_logo_html())
     
     with gr.Row():
         # ============================================
@@ -419,7 +524,7 @@ with gr.Blocks(
                         if img.mode in ('RGBA', 'LA', 'P'):
                             img = img.convert('RGB')
                         
-                        max_size = 400
+                        max_size = 600
                         img.thumbnail((max_size, max_size), Image.LANCZOS)
                         preview_images.append((img, f.stem))
                         
@@ -434,7 +539,7 @@ with gr.Blocks(
                     value=preview_images,
                     label=None,
                     show_label=False,
-                    columns=4,
+                    columns=3,
                     rows=None,
                     height=None,
                     object_fit="scale-down",
@@ -487,10 +592,16 @@ with gr.Blocks(
     )
     
     # 同步预览和源码
+    # markdown_preview.change(
+    #     fn=lambda x: x,
+    #     inputs=[markdown_preview],
+    #     outputs=[markdown_source]
+    # )
+    # 同步预览和源码（分离原始内容）
     markdown_preview.change(
-        fn=lambda x: x,
+        fn=lambda x: split_markdown_and_raw(x)[1],  # 只取原始内容
         inputs=[markdown_preview],
-        outputs=[markdown_source]
+        outputs=[markdown_source]  # 只更新 Source
     )
     
     # 缓存管理
