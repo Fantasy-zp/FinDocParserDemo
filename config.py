@@ -37,16 +37,16 @@ DEFAULT_MAX_TOKENS = 8192
 # ============================================
 # Prompt 模板
 # ============================================
-# DEFAULT_PROMPT = """请根据图像中的文字内容，将其转换为规范的 Markdown 格式。
+DEFAULT_PROMPT = (
+    "Below is the image of one page of a document. "
+    "Just return the plain text representation of this document as if you were reading it naturally.\n"
+    "ALL tables should be presented in HTML format.\n"
+    "If there are images or figures in the page, present them as \"<Image>(left,top),(right,bottom)</Image>\", "
+    "(left,top,right,bottom) are the coordinates of the top-left and bottom-right corners of the image or figure.\n"
+    "Present all titles and headings as H1 headings.\n"
+    "Do not hallucinate.\n"
+)
 
-# 要求：
-# 1. 保留所有表格结构（使用 Markdown 表格语法）
-# 2. 保持标题层级（使用 # ## ### 等）
-# 3. 保留列表和编号
-# 4. 保持文字格式（粗体、斜体等）
-# 5. 确保输出完整且格式规范
-# """
-DEFAULT_PROMPT = "请根据图像中的文字内容，将其转换为规范的 Markdown 格式。"
 # ============================================
 # PDF 处理配置
 # ============================================
