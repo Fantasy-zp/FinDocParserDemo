@@ -716,6 +716,146 @@ def process_document_with_cache(
     
     return images, markdown, False
 
+def is_valid_result(markdown: str) -> bool:
+    """
+    检查解析结果是否有效（不包含错误）
+    
+    规则：
+    1. 内容不能为空
+    2. 内容长度 >= 10 字符
+    3. 不包含错误关键词
+    4. 错误数量不能过多
+    
+    Args:
+        markdown: 解析得到的 markdown 内容
+    
+    Returns:
+        True: 有效结果，可以缓存
+        False: 包含错误，不应缓存
+    """
+    # 检查 1：非空
+    if not markdown:
+        print("   ⚠️  内容为空")
+        return False
+    
+    # 检查 2：最小长度
+    content = markdown.strip()
+    if len(content) < 10:
+        print(f"   ⚠️  内容过短 (只有 {len(content)} 字符)")
+        return False
+    
+    # 检查 3：错误关键词（不区分大小写）
+    error_patterns = [
+        "error:",
+        "exception:",
+        "failed:",
+        "connection error",
+        "timeout",
+        "api error",
+        "invalid response",
+        "<!-- error:",  # HTML 注释中的错误
+    ]
+    
+    content_lower = content.lower()
+    
+    for pattern in error_patterns:
+        if pattern in content_lower:
+            print(f"   ⚠️  检测到错误标识: '{pattern}'")
+            return False
+    
+    # 检查 4：错误密度（防止多页都失败）
+    error_count = content_lower.count("error")
+    total_length = len(content)
+    
+    if error_count > 0:
+        error_density = error_count / (total_length / 1000)  # 每1000字符的错误数
+        if error_density > 0.5:  # 如果每1000字符有超过0.5个error
+            print(f"   ⚠️  错误密度过高 (error 出现 {error_count} 次)")
+            return False
+    
+    # 通过所有检查
+    return True
+# def is_valid_result(markdown: str) -> bool:
+#     """增强版：更严格的验证"""
+#     if not markdown or len(markdown.strip()) < 10:
+#         return False
+    
+#     content = markdown.strip()
+#     content_lower = content.lower()
+    
+#     # 1. 严格的错误检查
+#     strict_errors = [
+#         "connection error",
+#         "timeout",
+#         "api error",
+#         "authentication failed",
+#         "rate limit exceeded",
+#     ]
+    
+#     for error in strict_errors:
+#         if error in content_lower:
+#             return False
+    
+#     # 2. 检查是否有实质内容（不只是错误信息）
+#     # 至少应该包含一些正常的 markdown 元素
+#     markdown_indicators = ["#", "##", "table", "```", "-", "*"]
+#     has_markdown = any(indicator in content for indicator in markdown_indicators)
+    
+#     if not has_markdown and "error" in content_lower:
+#         print("   ⚠️  只包含错误信息，没有有效内容")
+#         return False
+    
+#     # 3. 检查 JSON 格式的错误（如果使用了 JSON 格式）
+#     if content.startswith('{') and '"error"' in content_lower:
+#         return False
+    
+#     return True
+
+def extract_error_reason(markdown: str) -> str:
+    """
+    从错误内容中提取错误原因
+    
+    Args:
+        markdown: 包含错误的 markdown 内容
+    
+    Returns:
+        简短的错误描述
+    """
+    if not markdown:
+        return "未知错误"
+    
+    content_lower = markdown.lower()
+    
+    # 按优先级检查错误类型
+    if "connection" in content_lower or "connect" in content_lower:
+        return "网络连接失败"
+    elif "timeout" in content_lower or "timed out" in content_lower:
+        return "请求超时"
+    elif "authentication" in content_lower or "unauthorized" in content_lower:
+        return "认证失败"
+    elif "rate limit" in content_lower or "too many requests" in content_lower:
+        return "请求频率超限"
+    elif "api error" in content_lower or "api_error" in content_lower:
+        return "API 服务错误"
+    elif "invalid" in content_lower:
+        return "无效的请求"
+    elif "not found" in content_lower or "404" in content_lower:
+        return "API 地址错误"
+    elif "server error" in content_lower or "500" in content_lower:
+        return "服务器错误"
+    else:
+        # 尝试提取 Error: 后面的内容
+        if "error:" in content_lower:
+            try:
+                error_start = content_lower.index("error:") + 6
+                error_msg = markdown[error_start:error_start + 50].strip()
+                # 取第一行或前30个字符
+                error_msg = error_msg.split('\n')[0][:30]
+                return error_msg if error_msg else "解析错误"
+            except:
+                pass
+        
+        return "解析错误"
 
 def process_document_streaming_with_cache(
     file_path: str,
@@ -726,7 +866,7 @@ def process_document_streaming_with_cache(
     max_tokens: int
 ) -> Generator[Tuple[List[Image.Image], str, str, bool], None, None]:
     """
-    流式处理文档（带缓存 - Phase 3.4 优化版 - 实时进度更新）
+    流式处理文档（带缓存 - Phase 3.4 优化版 - 详细错误提示）
     
     Yields:
         (images, status, markdown, from_cache)
@@ -795,12 +935,11 @@ def process_document_streaming_with_cache(
         if update["result"] is not None:
             all_results[page_idx] = update["result"]
         
-        # ✅ 构建状态文本（实时更新版）
+        # 构建状态文本
         if total == 1:
             # 单页的状态显示
             if update["completed"] == 0:
-                # ✅ 处理中（实时更新时间）
-                # 使用脉搏动画而不是固定进度
+                # 处理中（实时更新时间）
                 pulse = int((update["elapsed"] * 2) % 20)
                 progress_bar = "█" * pulse + "░" * (20 - pulse)
                 
@@ -844,48 +983,82 @@ def process_document_streaming_with_cache(
         
         yield (images, status, markdown, False)
     
-    # 处理完成
+    # ============================================
+    # 处理完成 - 构建最终状态（详细错误版）
+    # ============================================
     final_markdown = merge_results_ordered(all_results, total) if total > 1 else all_results.get(0, "")
     total_elapsed = time.time() - start_time
     
-    if total == 1:
-        final_status = f"""✅ 解析完成！
+    # ✅ 验证结果是否有效
+    is_valid = is_valid_result(final_markdown) if final_markdown else False
+    
+    # ✅ 根据验证结果构建不同的状态信息
+    if is_valid:
+        # ========== 成功情况 ==========
+        if total == 1:
+            final_status = f"""✅ 解析完成！
 
 ████████████████████ 100%
 
 📄 页数: 1 页
 ⏱️  处理时间: {total_elapsed:.1f}s
 💾 已保存到缓存"""
-    else:
-        final_status = f"""✅ 解析完成！
+        else:
+            final_status = f"""✅ 解析完成！
 
 ████████████████████ 100%
 
 📄 总页数: {total} 页
 ⏱️  总耗时: {total_elapsed:.1f}s
 💾 已保存到缓存"""
-    
-    # 保存到缓存
-    if images is not None:
-        result = {
-            "markdown": final_markdown,
-            "metadata": {
-                "pages": len(images),
-                "model": model_key,
-                "timestamp": time.time()
-            }
-        }
         
-        cache_mgr.set(
-            cache_key,
-            result,
-            file_path_obj.name,
-            model_key,
-            temperature,
-            top_p,
-            max_tokens
-        )
+        # 保存到缓存
+        if images is not None:
+            result = {
+                "markdown": final_markdown,
+                "metadata": {
+                    "pages": len(images),
+                    "model": model_key,
+                    "timestamp": time.time()
+                }
+            }
+            
+            cache_mgr.set(
+                cache_key,
+                result,
+                file_path_obj.name,
+                model_key,
+                temperature,
+                top_p,
+                max_tokens
+            )
+            print(f"✅ 有效结果已保存到缓存")
+    else:
+        # ========== 失败情况（详细错误提示）==========
+        error_reason = extract_error_reason(final_markdown)
+        
+        if total == 1:
+            final_status = f"""❌ 解析失败！
+
+████████████████████ 100%
+
+📄 页数: 1 页
+⏱️  处理时间: {total_elapsed:.1f}s
+⚠️ 错误原因: {error_reason}
+💡 建议: 检查网络连接或更换模型"""
+        else:
+            final_status = f"""❌ 解析失败！
+
+████████████████████ 100%
+
+📄 总页数: {total} 页
+⏱️  总耗时: {total_elapsed:.1f}s
+⚠️ 错误原因: {error_reason}
+💡 建议: 检查网络连接或更换模型"""
+        
+        print(f"⚠️  解析失败: {error_reason}，跳过缓存")
     
+    # 返回最终结果
     yield (images, final_status, final_markdown, False)
 
 
