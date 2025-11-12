@@ -182,10 +182,43 @@ def create_download_button(markdown, filename):
 
 
 def test_model(model_name):
-    """测试模型连接"""
-    model_key = utils.get_model_key_from_name(model_name)
-    success, message = utils.test_model_connection(model_key)
-    return message
+    """测试模型连接（支持多种类型 - Phase 3.5）"""
+    try:
+        model_key = utils.get_model_key_from_name(model_name)
+        model_info = config.MODELS.get(model_key)
+        
+        if not model_info:
+            return f"❌ 未知模型: {model_name}"
+        
+        model_type = model_info.get("type", "openai")
+        
+        # ✅ 根据类型选择测试方式
+        if model_type == "custom":
+            # 自定义 API - 健康检查
+            if utils.check_custom_api_health(model_info["api_base"]):
+                return f"""✅ {model_info['name']} 连接成功！
+
+🔗 服务地址: {model_info['api_base']}
+📋 类型: 跨页合并模型
+✨ 特点: 支持跨页表格自动合并
+💡 说明: 此模型使用内置参数，不支持自定义调整"""
+            else:
+                return f"""❌ {model_info['name']} 连接失败
+
+请检查：
+1. 服务是否启动
+2. 地址是否正确: {model_info['api_base']}
+3. 端口是否开放: 8002
+
+启动命令示例：
+curl http://127.0.0.1:8002/health"""
+        else:
+            # OpenAI 兼容 API - 原有测试逻辑
+            success, message = utils.test_model_connection(model_key)
+            return message
+            
+    except Exception as e:
+        return f"❌ 连接失败\n\n错误: {str(e)}"
 
 
 # ============================================
@@ -386,6 +419,18 @@ with gr.Blocks(
             
             # 高级设置
             with gr.Accordion("⚙️ 高级设置", open=False):
+                # ✅ 添加参数支持说明
+                gr.Markdown(
+                    """
+                    💡 **参数说明**：
+                    - **FinDocParserV1 / Qwen2.5-VL**：支持所有参数调整
+                    - **跨页合并模型 🔗**：使用内置参数，下方设置不生效
+                    
+                    *跨页合并模型专注于自动处理跨页内容，无需手动调优参数*
+                    """,
+                    elem_id="param-info"
+                )
+                
                 temperature = gr.Slider(
                     0.0, 1.0, 
                     value=config.DEFAULT_TEMPERATURE,

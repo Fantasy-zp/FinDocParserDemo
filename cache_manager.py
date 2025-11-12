@@ -100,20 +100,35 @@ class CacheManager:
         max_tokens: int
     ) -> str:
         """
-        生成缓存键
-        
-        基于文件内容哈希 + 模型参数
+        生成缓存键（支持多种模型类型 - Phase 3.5）
+    
+        - OpenAI 模型：完整参数哈希（基于文件内容哈希 + 模型参数）
+        - 自定义模型：简化哈希（只用文件+模型）
         """
         # 读取文件内容并计算哈希
         file_path = Path(file_path)
         with open(file_path, "rb") as f:
             file_hash = hashlib.sha256(f.read()).hexdigest()[:16]
+            
+        # ✅ 检查模型类型
+        try:
+            import config
+            model_info = config.MODELS.get(model_key, {})
+            model_type = model_info.get("type", "openai")
+            
+            if model_type == "custom":
+                # ✅ 自定义模型：简化缓存键（只用文件和模型）
+                cache_key = f"{file_hash}_{model_key}"
+                print(f"🔑 生成缓存键（简化）: {cache_key}")
+                return cache_key
+        except:
+            pass  # 如果出错，使用默认逻辑
         
-        # 参数哈希
+        # OpenAI 模型：完整缓存键
         param_str = f"{model_key}_{prompt}_{temperature}_{top_p}_{max_tokens}"
         param_hash = hashlib.md5(param_str.encode()).hexdigest()[:16]
-        
         cache_key = f"{file_hash}_{param_hash}"
+        
         return cache_key
     
     def get(self, cache_key: str) -> Optional[Dict[str, Any]]:

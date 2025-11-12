@@ -10,6 +10,7 @@ MODELS = {
         "name": "FinDocParserV1 ⭐",
         "api_base": "http://localhost:8001/v1",
         "model_id": "/data/cby/联合训练/chectpoint/第二版数据/内容+跨页/15epoch/v1-20251105-145645/checkpoint-500-merged",
+        "type": "openai",  # ✅ 添加类型标识
         "description": "微调后的模型，专为金融文档优化",
         "max_tokens": 8192,
         "recommended": True
@@ -18,14 +19,30 @@ MODELS = {
         "name": "Qwen2.5-VL-3B (Base)",
         "api_base": "http://localhost:8002/v1",
         "model_id": "Qwen2.5-VL-3B",
+        "type": "openai",  # ✅ 添加类型标识
         "description": "基础模型",
         "max_tokens": 8192,
         "recommended": False
     },
+
+    # ============================================
+    # ✅ 新增：跨页合并模型
+    # ============================================
+    "cross_page_fusion": {
+        "name": "跨页合并模型 🔗",
+        "api_base": "http://127.0.0.1:8002",
+        "model_id": "cross-page-fusion",
+        "type": "custom",  # ✅ 自定义类型
+        "description": "支持跨页表格自动合并，专为复杂金融文档设计",
+        "max_tokens": None,  # 不支持
+        "supports_params": False,  # ✅ 标记不支持参数调整
+        "supports_prompt": False,   # ✅ 标记不支持自定义 prompt
+        "recommended": True
+    }
 }
 
 # 默认模型
-DEFAULT_MODEL = "qwen2_5vl_finetuned"
+DEFAULT_MODEL = "qwen2_5vl_finetuned"   # 或改为 "cross_page_fusion"
 
 # ============================================
 # 推理参数（可调节的默认值）
