@@ -7,7 +7,7 @@ FinDocParser 配置文件 - Phase 2
 # ============================================
 MODELS = {
     "qwen2_5vl_finetuned": {
-        "name": "FinDocParserV1 ⭐",
+        "name": "FinDocParserV1",
         "api_base": "http://localhost:8001/v1",
         "model_id": "/data/cby/联合训练/chectpoint/第二版数据/内容+跨页/15epoch/v1-20251105-145645/checkpoint-500-merged",
         "type": "openai",  # ✅ 添加类型标识
@@ -24,12 +24,22 @@ MODELS = {
         "max_tokens": 8192,
         "recommended": False
     },
-
     # ============================================
     # ✅ 新增：跨页合并模型
     # ============================================
+    "FinDocParserV1.5": {
+        "name": "FinDocParserV1.5",
+        "api_base": "http://127.0.0.1:8003",
+        "model_id": "findoc-parser-v1.5",
+        "type": "custom",  # ✅ 自定义类型
+        "description": "具备元素内容解析能力,效果更好",
+        "max_tokens": None,  # 不支持
+        "supports_params": False,  # ✅ 标记不支持参数调整
+        "supports_prompt": False,   # ✅ 标记不支持自定义 prompt
+        "recommended": False
+    },
     "cross_page_fusion": {
-        "name": "跨页合并模型 🔗",
+        "name": "FinDocParserV2 ⭐",
         "api_base": "http://127.0.0.1:8002",
         "model_id": "cross-page-fusion",
         "type": "custom",  # ✅ 自定义类型
@@ -38,7 +48,7 @@ MODELS = {
         "supports_params": False,  # ✅ 标记不支持参数调整
         "supports_prompt": False,   # ✅ 标记不支持自定义 prompt
         "recommended": True
-    }
+    },
 }
 
 # 默认模型
@@ -79,7 +89,7 @@ IMAGE_MIN_PIXELS = 1024    # 32x32
 # ============================================
 # 界面配置
 # ============================================
-TITLE = "端到端金融文档解析——FinDocParserV1"
+TITLE = "端到端金融文档解析——FinDocParser"
 DESCRIPTION = """
 支持上传金融文档（PDF 或图片）并转换为 Markdown 格式。
 """

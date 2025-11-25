@@ -419,17 +419,7 @@ with gr.Blocks(
             
             # 高级设置
             with gr.Accordion("⚙️ 高级设置", open=False):
-                # ✅ 添加参数支持说明
-                gr.Markdown(
-                    """
-                    💡 **参数说明**：
-                    - **FinDocParserV1 / Qwen2.5-VL**：支持所有参数调整
-                    - **跨页合并模型 🔗**：使用内置参数，下方设置不生效
-                    
-                    *跨页合并模型专注于自动处理跨页内容，无需手动调优参数*
-                    """,
-                    elem_id="param-info"
-                )
+                # 参数设置说明在页面下方的使用提示中
                 
                 temperature = gr.Slider(
                     0.0, 1.0, 
@@ -671,6 +661,11 @@ with gr.Blocks(
         - ✅ 实时显示处理进度和结果
         - ✅ 支持下载 Markdown 文件
         - ✅ 智能缓存，重复文档秒返回
+        
+        📊 **模型说明：**
+        - **FinDocParserV1**：具备元素内容解析能力
+        - **FinDocParserV1.5**：具备元素内容解析能力，效果更好
+        - **FinDocParserV2**：具备元素内容解析+跨页合并+版面分析等能力
         """
     )
 
@@ -693,7 +688,8 @@ if __name__ == "__main__":
     
     demo.launch(
         server_name="0.0.0.0",
-        server_port=7860,
+        server_port=7863,
         share=False,
-        show_error=True
+        show_error=True,
+        favicon_path="assets/logo.ico"
     )
