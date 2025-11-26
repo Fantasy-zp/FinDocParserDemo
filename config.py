@@ -6,10 +6,11 @@ FinDocParser 配置文件 - Phase 2
 # 多模型配置
 # ============================================
 MODELS = {
-    "cross_page_fusion": {
+    # 后端是用OCRFlux部署的模型
+    "FinDocParserV2": {
         "name": "FinDocParserV2 ⭐",
         "api_base": "http://127.0.0.1:8002",
-        "model_id": "cross-page-fusion",
+        "model_id": "findoc-parser-v2",
         "type": "custom",  # ✅ 自定义类型
         "description": "支持跨页表格自动合并，专为复杂金融文档设计",
         "max_tokens": None,  # 不支持
@@ -17,6 +18,7 @@ MODELS = {
         "supports_prompt": False,   # ✅ 标记不支持自定义 prompt
         "recommended": True
     },
+    # 后端是用llama-factory部署的模型，灵活性强一点
     "qwen2_5vl_finetuned": {
         "name": "FinDocParserV1",
         "api_base": "http://localhost:8001/v1",
@@ -35,9 +37,7 @@ MODELS = {
         "max_tokens": 8192,
         "recommended": False
     },
-    # ============================================
-    # ✅ 新增：跨页合并模型
-    # ============================================
+    # 后端是用OCRFlux部署的模型
     "FinDocParserV1.5": {
         "name": "FinDocParserV1.5",
         "api_base": "http://127.0.0.1:8003",
@@ -52,7 +52,7 @@ MODELS = {
 }
 
 # 默认模型
-DEFAULT_MODEL = "cross_page_fusion"   # 或改为 "cross_page_fusion"
+DEFAULT_MODEL = "FinDocParserV2" 
 
 # ============================================
 # 推理参数（可调节的默认值）

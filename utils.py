@@ -14,6 +14,7 @@ from typing import Generator, Dict, Any, List, Tuple
 from cache_manager import get_cache_manager
 import requests
 import json
+import threading
 
 
 def pdf_to_images(pdf_path):
@@ -1118,21 +1119,20 @@ def clear_cache():
 import json
 
 def infer_with_custom_api(
-    pdf_path: str,
+    pdf_path: str,  # 虽然叫 pdf_path，但也支持图片
     api_base: str,
     timeout: int = 300
 ) -> str:
     """
-    调用自定义 API 进行文档解析（跨页合并模型）
+    调用自定义 API 进行文档解析（支持 PDF 和图片）
     
     Args:
-        pdf_path: PDF 文件路径
+        pdf_path: 文件路径（PDF 或图片）
         api_base: API 地址（如 http://127.0.0.1:8002）
         timeout: 超时时间（秒）
     
     Returns:
         解析结果（markdown + 隐藏的原始 JSON）
-        格式："{document_text}\n\n<!-- RAW_OUTPUT_START\n{json}\nRAW_OUTPUT_END -->"
     """
     try:
         parse_url = f"{api_base}/parse"
@@ -1141,12 +1141,23 @@ def infer_with_custom_api(
         if not pdf_file.exists():
             raise FileNotFoundError(f"文件不存在: {pdf_path}")
         
+        # ✅ 修改 3：根据文件类型设置 MIME type
+        suffix = pdf_file.suffix.lower()
+        mime_types = {
+            '.pdf': 'application/pdf',
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg'
+        }
+        mime_type = mime_types.get(suffix, 'application/octet-stream')
+        
         print(f"📤 上传文件到跨页合并 API: {parse_url}")
         print(f"   文件: {pdf_file.name} ({pdf_file.stat().st_size / 1024:.1f}KB)")
+        print(f"   类型: {mime_type}")  # ✅ 显示文件类型
         
         # 发送请求
         with open(pdf_file, 'rb') as f:
-            files = {'file': (pdf_file.name, f, 'application/pdf')}
+            files = {'file': (pdf_file.name, f, mime_type)}  # ✅ 使用正确的 MIME type
             response = requests.post(parse_url, files=files, timeout=timeout)
         
         # 检查响应
@@ -1155,7 +1166,7 @@ def infer_with_custom_api(
         # 解析 JSON 响应
         result = response.json()
         
-        # ✅ 保存原始 JSON（格式化，易读）
+        # 保存原始 JSON
         original_json = json.dumps(result, ensure_ascii=False, indent=2)
         
         # 根据实际返回格式提取内容
@@ -1169,18 +1180,15 @@ def infer_with_custom_api(
                 print(f"   内容长度: {len(document_text)} 字符")
                 print(f"   原始 JSON 长度: {len(original_json)} 字符")
                 
-                # ✅ 添加隐藏的原始 JSON（与其他模型格式一致）
                 combined = f"{document_text}\n\n<!-- RAW_OUTPUT_START\n{original_json}\nRAW_OUTPUT_END -->"
                 return combined
             else:
                 error_msg = "API 返回的 document_text 为空"
                 print(f"⚠️  {error_msg}")
-                # 即使内容为空，也返回原始 JSON
                 return f"<!-- Error: {error_msg} -->\n\n<!-- RAW_OUTPUT_START\n{original_json}\nRAW_OUTPUT_END -->"
         else:
             error_msg = result.get('error', '未知错误')
             print(f"❌ API 返回失败: {error_msg}")
-            # 失败时也返回原始 JSON，方便调试
             return f"<!-- Error: {error_msg} -->\n\n<!-- RAW_OUTPUT_START\n{original_json}\nRAW_OUTPUT_END -->"
         
     except requests.exceptions.Timeout:
@@ -1236,22 +1244,9 @@ def process_with_custom_model(
     file_path: str,
     model_key: str
 ) -> Generator[Tuple[List[Image.Image], str, str, bool], None, None]:
-    """
-    使用自定义 API 处理文档（跨页合并模型）
-    
-    完整流程：
-    1. 检查缓存
-    2. 转换 PDF 为图片（用于预览）
-    3. 调用跨页合并 API
-    4. 保存缓存
-    """
+    """使用自定义 API 处理文档（支持 PDF 和图片）"""
     file_path_obj = Path(file_path)
     model_info = config.MODELS[model_key]
-    
-    # 只支持 PDF
-    if file_path_obj.suffix.lower() != '.pdf':
-        yield (None, "❌ 跨页合并模型仅支持 PDF 文件", "", False)
-        return
     
     # ============================================
     # 1. 检查缓存
@@ -1259,16 +1254,20 @@ def process_with_custom_model(
     if config.CACHE_ENABLED:
         cache_mgr = get_cache_manager()
         cache_key = cache_mgr.generate_cache_key(
-            file_path, model_key, "", 0, 0, 0  # 简化参数
+            file_path, model_key, "", 0, 0, 0
         )
         
         cached_result = cache_mgr.get(cache_key)
         if cached_result is not None:
             # 缓存命中
             try:
-                images = pdf_to_images(file_path_obj)
+                # ✅ 修改 1：根据文件类型加载预览
+                if file_path_obj.suffix.lower() == '.pdf':
+                    images = pdf_to_images(file_path_obj)
+                else:
+                    images = [Image.open(file_path_obj)]
             except Exception as e:
-                yield (None, f"❌ PDF 转换失败: {str(e)}", "", False)
+                yield (None, f"❌ 文件加载失败: {str(e)}", "", False)
                 return
             
             markdown = cached_result["markdown"]
@@ -1280,26 +1279,29 @@ def process_with_custom_model(
 
 📄 页数: {pages} 页
 🔥 响应时间: <0.1s
-💾 缓存命中！
-🔗 跨页表格已合并"""
+💾 缓存命中！"""
             
             yield images, status, markdown, True
             return
     
     # ============================================
-    # 2. 转换 PDF 为图片（用于预览）
+    # 2. 转换文件为预览图片
     # ============================================
     try:
-        images = pdf_to_images(file_path_obj)
+        # ✅ 修改 2：根据文件类型加载预览
+        if file_path_obj.suffix.lower() == '.pdf':
+            images = pdf_to_images(file_path_obj)
+        else:
+            images = [Image.open(file_path_obj)]
     except Exception as e:
-        yield (None, f"❌ PDF 转换失败: {str(e)}", "", False)
+        yield (None, f"❌ 文件加载失败: {str(e)}", "", False)
         return
     
     total = len(images)
     start_time = time.time()
     
     # 初始状态
-    initial_status = f"""📄 已加载 {total} 页 PDF
+    initial_status = f"""📄 已加载 {total} 页文档
 
 ⏳ 正在解析整个文档（支持跨页内容自动合并）...
 
@@ -1308,28 +1310,93 @@ def process_with_custom_model(
     yield (images, initial_status, "", False)
     
     # ============================================
-    # 3. 调用跨页合并 API
+    # 3. 带心跳的 API 调用（保持不变）
     # ============================================
-    markdown = infer_with_custom_api(file_path, model_info["api_base"])
-    elapsed = time.time() - start_time
+    result_container = {
+        "done": False,
+        "result": None,
+        "error": None
+    }
+    
+    def api_call_thread():
+        try:
+            result_container["result"] = infer_with_custom_api(
+                file_path, 
+                model_info["api_base"]
+            )
+        except Exception as e:
+            result_container["error"] = str(e)
+        finally:
+            result_container["done"] = True
+    
+    thread = threading.Thread(target=api_call_thread, daemon=True)
+    thread.start()
+    
+    heartbeat_interval = 1.0
+    
+    while not result_container["done"]:
+        current_time = time.time()
+        elapsed = current_time - start_time
+        
+        pulse_position = int((elapsed / heartbeat_interval) % 20)
+        progress_bar = "█" * pulse_position + "░" * (20 - pulse_position)
+        
+        if elapsed < 10:
+            hint = "🔍 正在分析文档结构..."
+        elif elapsed < 20:
+            hint = "📊 正在识别文本和表格..."
+        elif elapsed < 30:
+            hint = "🔗 正在合并跨页内容..."
+        elif elapsed < 45:
+            hint = "✨ 正在优化输出格式..."
+        else:
+            hint = "⏳ 复杂文档需要更多时间，请稍候..."
+        
+        status = f"""⏳ 正在解析整个文档...
+
+{progress_bar}
+
+⏱️  已用时间: {elapsed:.1f}s
+📄 总页数: {total} 页
+{hint}"""
+        
+        yield (images, status, "", False)
+        time.sleep(heartbeat_interval)
     
     # ============================================
-    # 4. 验证结果并保存缓存
+    # 4. 处理结果（保持不变）
     # ============================================
+    elapsed = time.time() - start_time
+    
+    if result_container["error"]:
+        error_status = f"""❌ 解析失败！
+
+████████████████████ 100%
+
+📄 总页数: {total} 页
+⏱️  处理时间: {elapsed:.1f}s
+⚠️  错误原因: {result_container['error']}
+
+💡 建议: 
+  1. 检查 API 服务状态
+  2. 确认文档格式正确
+  3. 查看日志获取详细信息"""
+        
+        yield (images, error_status, "", False)
+        return
+    
+    markdown = result_container["result"]
     is_valid = is_valid_result(markdown) if markdown else False
     
     if is_valid:
-        # 成功
         final_status = f"""✅ 解析完成！
 
 ████████████████████ 100%
 
 📄 总页数: {total} 页
 ⏱️  处理时间: {elapsed:.1f}s
-🔗 跨页表格已自动合并
 💾 已保存到缓存"""
         
-        # 保存到缓存
         if config.CACHE_ENABLED:
             result = {
                 "markdown": markdown,
@@ -1346,7 +1413,6 @@ def process_with_custom_model(
             print(f"✅ 有效结果已保存到缓存")
         
     else:
-        # 失败
         error_reason = extract_error_reason(markdown)
         final_status = f"""❌ 解析失败！
 
@@ -1354,7 +1420,7 @@ def process_with_custom_model(
 
 📄 总页数: {total} 页
 ⏱️  处理时间: {elapsed:.1f}s
-⚠️ 错误原因: {error_reason}
+⚠️  错误原因: {error_reason}
 💡 建议: 
   1. 检查 API 服务状态
   2. 确认文档格式正确
