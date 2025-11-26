@@ -1,6 +1,6 @@
 """
 FinDocParser - Phase 3.4 版本
-优化展示：美化界面 + 增强交互 + 中文化
+优化展示:美化界面 + 增强交互 + 中文化 + 文档预览对比
 """
 import gradio as gr
 from pathlib import Path
@@ -39,10 +39,10 @@ def split_markdown_and_raw(combined_markdown):
             # ✅ 返回两个值
             return markdown_clean, raw_content
         except Exception as e:
-            print(f"⚠️  分离内容时出错: {e}")
+            print(f"⚠️ 分离内容时出错: {e}")
             return combined_markdown, combined_markdown
     
-    # 没有隐藏内容，Preview 和 Source 显示相同
+    # 没有隐藏内容,Preview 和 Source 显示相同
     return combined_markdown, combined_markdown
 
 
@@ -85,7 +85,7 @@ def get_logo_html():
         </div>
         """
     except Exception as e:
-        print(f"⚠️  加载 Logo 失败: {e}")
+        print(f"⚠️ 加载 Logo 失败: {e}")
         return """
         <div style='display: flex; flex-direction: row; align-items: center; padding: 0; margin-top: -15px;'>
             <p style='font-size: 45px; margin: 0 10px 0 0;'>🏦</p>
@@ -95,6 +95,45 @@ def get_logo_html():
         </div>
         """
 
+
+def preview_uploaded_file(file_path):
+    """
+    预览上传的文件
+    
+    Args:
+        file_path: 上传的文件路径
+    
+    Returns:
+        图片列表（用于Gallery显示）
+    """
+    if not file_path:
+        return None
+    
+    try:
+        file_path = Path(file_path)
+        
+        if file_path.suffix.lower() == '.pdf':
+            # PDF转图片
+            images = utils.pdf_to_images(file_path)
+            # 限制预览数量（避免加载过多）
+            max_preview = min(10, len(images))
+            preview_images = images[:max_preview]
+            
+            if len(images) > max_preview:
+                print(f"📋 预览前 {max_preview} 页（共 {len(images)} 页）")
+            
+            return preview_images
+        else:
+            # 图片文件
+            from PIL import Image
+            img = Image.open(file_path)
+            return [img]
+            
+    except Exception as e:
+        print(f"⚠️ 预览失败: {e}")
+        return None
+
+
 def parse_document_streaming(
     file, 
     model_name,
@@ -103,12 +142,12 @@ def parse_document_streaming(
     max_tokens,
     custom_prompt
 ):
-    """流式解析文档（Phase 3.4 优化版）"""
+    """流式解析文档(Phase 3.4 优化版)"""
     try:
         # 验证文件
         is_valid, error_msg = utils.validate_file(file)
         if not is_valid:
-            yield None, f"❌ 错误：{error_msg}", "", None
+            yield None, f"❌ 错误:{error_msg}", "", None
             return
         
         # 获取模型键
@@ -138,14 +177,14 @@ def parse_document_streaming(
     except Exception as e:
         error_msg = f"""❌ 解析失败
 
-错误信息：{str(e)}
+错误信息:{str(e)}
 
-请检查：
+请检查:
 1. 文件格式是否正确
 2. 模型服务是否正常运行
 3. 网络连接是否正常
 
-如问题持续，请联系技术支持。"""
+如问题持续,请联系技术支持。"""
         print(error_msg)
         import traceback
         traceback.print_exc()
@@ -153,7 +192,7 @@ def parse_document_streaming(
 
 
 def create_download_button(markdown, filename):
-    """创建下载按钮的 HTML（只下载干净的 markdown）"""
+    """创建下载按钮的 HTML(只下载干净的 markdown)"""
     if not markdown:
         return None
     
@@ -182,7 +221,7 @@ def create_download_button(markdown, filename):
 
 
 def test_model(model_name):
-    """测试模型连接（支持多种类型 - Phase 3.5）"""
+    """测试模型连接(支持多种类型 - Phase 3.5)"""
     try:
         model_key = utils.get_model_key_from_name(model_name)
         model_info = config.MODELS.get(model_key)
@@ -196,21 +235,16 @@ def test_model(model_name):
         if model_type == "custom":
             # 自定义 API - 健康检查
             if utils.check_custom_api_health(model_info["api_base"]):
-                return f"""✅ {model_info['name']} 连接成功！
-
-🔗 服务地址: {model_info['api_base']}
-📋 类型: 跨页合并模型
-✨ 特点: 支持跨页表格自动合并
-💡 说明: 此模型使用内置参数，不支持自定义调整"""
+                return f"""✅ {model_info['name']} 连接成功!"""
             else:
                 return f"""❌ {model_info['name']} 连接失败
 
-请检查：
+请检查:
 1. 服务是否启动
 2. 地址是否正确: {model_info['api_base']}
 3. 端口是否开放: 8002
 
-启动命令示例：
+启动命令示例:
 curl http://127.0.0.1:8002/health"""
         else:
             # OpenAI 兼容 API - 原有测试逻辑
@@ -258,6 +292,29 @@ with gr.Blocks(
             max-height: 1000px;
         }
         
+        /* 上传预览 Gallery 样式 */
+        #upload-preview-gallery {
+            max-height: 450px;
+            overflow-y: auto;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            background: #fafafa;
+            padding: 8px;
+        }
+        
+        #upload-preview-gallery img {
+            border: 2px solid #e5e7eb;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+            object-fit: contain !important;
+        }
+        
+        #upload-preview-gallery img:hover {
+            border-color: #3b82f6;
+            transform: scale(1.02);
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+        }
+        
         /* Source 代码框滚动 */
         #markdown-source {
             max-height: 600px;
@@ -284,6 +341,7 @@ with gr.Blocks(
         
         #example-gallery::-webkit-scrollbar,
         #original-gallery::-webkit-scrollbar,
+        #upload-preview-gallery::-webkit-scrollbar,
         #markdown-source::-webkit-scrollbar,
         #markdown-preview::-webkit-scrollbar {
             width: 8px;
@@ -291,6 +349,7 @@ with gr.Blocks(
         
         #example-gallery::-webkit-scrollbar-track,
         #original-gallery::-webkit-scrollbar-track,
+        #upload-preview-gallery::-webkit-scrollbar-track,
         #markdown-source::-webkit-scrollbar-track,
         #markdown-preview::-webkit-scrollbar-track {
             background: #f1f1f1;
@@ -299,6 +358,7 @@ with gr.Blocks(
         
         #example-gallery::-webkit-scrollbar-thumb,
         #original-gallery::-webkit-scrollbar-thumb,
+        #upload-preview-gallery::-webkit-scrollbar-thumb,
         #markdown-source::-webkit-scrollbar-thumb,
         #markdown-preview::-webkit-scrollbar-thumb {
             background: #888;
@@ -307,6 +367,7 @@ with gr.Blocks(
         
         #example-gallery::-webkit-scrollbar-thumb:hover,
         #original-gallery::-webkit-scrollbar-thumb:hover,
+        #upload-preview-gallery::-webkit-scrollbar-thumb:hover,
         #markdown-source::-webkit-scrollbar-thumb:hover,
         #markdown-preview::-webkit-scrollbar-thumb:hover {
             background: #555;
@@ -358,7 +419,7 @@ with gr.Blocks(
                 max-height: 400px;
             }
             
-            /* 响应式：移动端 Logo 居中 */
+            /* 响应式:移动端 Logo 居中 */
             #logo-container {
                 margin-top: 0;
             }
@@ -368,18 +429,18 @@ with gr.Blocks(
 
     # 标题和 Logo
     with gr.Row(equal_height=False):
-        # 左侧：标题和描述
+        # 左侧:标题和描述
         with gr.Column(scale=8):
             gr.Markdown(f"# {config.TITLE}")
             gr.Markdown(config.DESCRIPTION)
         
-        # 右侧：Logo 和说明
+        # 右侧:Logo 和说明
         with gr.Column(scale=2, min_width=100, elem_id="logo-container"):
             gr.HTML(get_logo_html())
     
     with gr.Row():
         # ============================================
-        # 左侧：输入面板
+        # 左侧:输入面板
         # ============================================
         with gr.Column(scale=4):
             gr.Markdown("### 📄 上传文档")
@@ -389,6 +450,20 @@ with gr.Blocks(
                 file_types=config.ALLOWED_FILE_TYPES,
                 type="filepath"
             )
+            
+            # ✅ 新增:上传文档预览
+            with gr.Accordion("📋 文档预览（方便与右侧解析结果对比）", open=True):
+                upload_preview = gr.Gallery(
+                    label="已上传的文档",
+                    columns=1,
+                    rows=2,
+                    height=450,
+                    object_fit="contain",
+                    show_label=False,
+                    elem_id="upload-preview-gallery",
+                    allow_preview=True,
+                    preview=True
+                )
             
             # 模型选择
             gr.Markdown("### 🤖 模型选择")
@@ -408,14 +483,6 @@ with gr.Blocks(
                     scale=2,
                     placeholder="点击测试模型连接"
                 )
-            # test_btn = gr.Button("🔍 测试连接", size="lg", variant="secondary")
-            # test_result = gr.Textbox(
-            #     show_label=False,
-            #     interactive=False,
-            #     placeholder="点击测试模型连接",
-            #     lines=1
-            # )
-
             
             # 高级设置
             with gr.Accordion("⚙️ 高级设置", open=False):
@@ -426,7 +493,7 @@ with gr.Blocks(
                     value=config.DEFAULT_TEMPERATURE,
                     step=0.0001,
                     label="温度参数",
-                    info="较低值更确定，较高值更随机"
+                    info="较低值更确定,较高值更随机"
                 )
                 
                 top_p = gr.Slider(
@@ -446,7 +513,7 @@ with gr.Blocks(
                 )
                 
                 custom_prompt = gr.Textbox(
-                    label="自定义提示词（可选）",
+                    label="自定义提示词(可选)",
                     placeholder="留空使用默认提示词",
                     lines=4
                 )
@@ -475,18 +542,18 @@ with gr.Blocks(
             status_box = gr.Textbox(
                 label="状态",
                 interactive=False,
-                placeholder="准备就绪，等待解析...",
+                placeholder="准备就绪,等待解析...",
                 lines=8,
                 elem_id="status-box"
             )
         
         # ============================================
-        # 右侧：输出面板
+        # 右侧:输出面板
         # ============================================
         with gr.Column(scale=6):
             gr.Markdown("### 📊 解析结果")
             
-            # 下载按钮（在标签页外）
+            # 下载按钮(在标签页外)
             download_html = gr.HTML()
             
             with gr.Tabs():
@@ -564,7 +631,7 @@ with gr.Blocks(
                         preview_images.append((img, f.stem))
                         
                 except Exception as e:
-                    print(f"⚠️  加载示例失败 {f.name}: {e}")
+                    print(f"⚠️ 加载示例失败 {f.name}: {e}")
                     continue
             
             if preview_images:
@@ -599,11 +666,18 @@ with gr.Blocks(
         else:
             gr.Markdown(f"*在 `{config.EXAMPLES_DIR}` 目录中未找到示例文件*")
     else:
-        gr.Markdown(f"*示例目录不存在：`{config.EXAMPLES_DIR}`*")
+        gr.Markdown(f"*示例目录不存在:`{config.EXAMPLES_DIR}`*")
     
     # ============================================
     # 事件绑定
     # ============================================
+    
+    # ✅ 文件上传时自动预览
+    file_input.change(
+        fn=preview_uploaded_file,
+        inputs=[file_input],
+        outputs=[upload_preview]
+    )
     
     # 测试模型连接
     test_btn.click(
@@ -626,13 +700,7 @@ with gr.Blocks(
         outputs=[original_gallery, status_box, markdown_preview, download_html]
     )
     
-    # 同步预览和源码
-    # markdown_preview.change(
-    #     fn=lambda x: x,
-    #     inputs=[markdown_preview],
-    #     outputs=[markdown_source]
-    # )
-    # 同步预览和源码（分离原始内容）
+    # 同步预览和源码(分离原始内容)
     markdown_preview.change(
         fn=lambda x: split_markdown_and_raw(x)[1],  # 只取原始内容
         inputs=[markdown_preview],
@@ -656,16 +724,17 @@ with gr.Blocks(
     gr.Markdown("---")
     gr.Markdown(
         """
-        💡 **使用提示：** 
-        - ✅ 支持 多页PDF 和图片文件
+        💡 **使用提示:** 
+        - ✅ 支持多页PDF 和图片文件
         - ✅ 实时显示处理进度和结果
         - ✅ 支持下载 Markdown 文件
-        - ✅ 智能缓存，重复文档秒返回
+        - ✅ 智能缓存,重复文档秒返回
+        - ✅ 左侧预览原文档,右侧查看解析结果,方便对比
         
-        📊 **模型说明：**
-        - **FinDocParserV1**：具备元素内容解析能力
-        - **FinDocParserV1.5**：具备元素内容解析能力，效果更好
-        - **FinDocParserV2**：具备元素内容解析+跨页合并+版面分析等能力
+        📊 **模型说明:**
+        - **FinDocParserV1**:具备元素内容解析能力
+        - **FinDocParserV1.5**:具备元素内容解析能力,效果更好
+        - **FinDocParserV2**:具备元素内容解析+跨页合并+版面分析等能力
         """
     )
 
@@ -677,18 +746,19 @@ if __name__ == "__main__":
     for key, model in config.MODELS.items():
         print(f"  - {model['name']}: {model['api_base']}")
     print("\n" + "="*80)
-    print("✨ Phase 3.4 功能:")
-    print("  - 📄 Gallery 无限滚动（支持任意页数）")
+    print("✨ Phase 3.4+ 功能:")
+    print("  - 📄 Gallery 无限滚动(支持任意页数)")
     print("  - 📥 Markdown 下载功能")
     print("  - 🎨 美化界面样式")
     print("  - 📱 响应式布局")
     print("  - ⚡ 优化加载体验")
     print("  - 🇨🇳 完整中文界面")
+    print("  - 📋 上传文档预览对比功能")
     print("="*80 + "\n")
     
     demo.launch(
         server_name="0.0.0.0",
-        server_port=7863,
+        server_port=7860,
         share=False,
         show_error=True,
         favicon_path="assets/logo.ico"

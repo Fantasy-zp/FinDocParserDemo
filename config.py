@@ -6,6 +6,17 @@ FinDocParser 配置文件 - Phase 2
 # 多模型配置
 # ============================================
 MODELS = {
+    "cross_page_fusion": {
+        "name": "FinDocParserV2 ⭐",
+        "api_base": "http://127.0.0.1:8002",
+        "model_id": "cross-page-fusion",
+        "type": "custom",  # ✅ 自定义类型
+        "description": "支持跨页表格自动合并，专为复杂金融文档设计",
+        "max_tokens": None,  # 不支持
+        "supports_params": False,  # ✅ 标记不支持参数调整
+        "supports_prompt": False,   # ✅ 标记不支持自定义 prompt
+        "recommended": True
+    },
     "qwen2_5vl_finetuned": {
         "name": "FinDocParserV1",
         "api_base": "http://localhost:8001/v1",
@@ -38,21 +49,10 @@ MODELS = {
         "supports_prompt": False,   # ✅ 标记不支持自定义 prompt
         "recommended": False
     },
-    "cross_page_fusion": {
-        "name": "FinDocParserV2 ⭐",
-        "api_base": "http://127.0.0.1:8002",
-        "model_id": "cross-page-fusion",
-        "type": "custom",  # ✅ 自定义类型
-        "description": "支持跨页表格自动合并，专为复杂金融文档设计",
-        "max_tokens": None,  # 不支持
-        "supports_params": False,  # ✅ 标记不支持参数调整
-        "supports_prompt": False,   # ✅ 标记不支持自定义 prompt
-        "recommended": True
-    },
 }
 
 # 默认模型
-DEFAULT_MODEL = "qwen2_5vl_finetuned"   # 或改为 "cross_page_fusion"
+DEFAULT_MODEL = "cross_page_fusion"   # 或改为 "cross_page_fusion"
 
 # ============================================
 # 推理参数（可调节的默认值）
