@@ -15,6 +15,7 @@ from cache_manager import get_cache_manager
 import requests
 import json
 import threading
+import io
 
 
 def pdf_to_images(pdf_path):
@@ -867,16 +868,16 @@ def process_document_streaming_with_cache(
     temperature: float,
     top_p: float,
     max_tokens: int
-) -> Generator[Tuple[List[Image.Image], str, str, bool], None, None]:
+) -> Generator[Tuple[List[Image.Image], str, str, List[Image.Image], bool], None, None]:
     """
-    流式处理文档（支持多种模型类型 - Phase 3.5）
+    流式处理文档（支持多种模型类型 - Phase 3.6）
     
     Yields:
-        (images, status, markdown, from_cache)
+        (images, status, markdown, layout_images, from_cache)
     """
     model_info = config.MODELS.get(model_key)
     if not model_info:
-        yield (None, f"❌ 未知模型: {model_key}", "", False)
+        yield (None, f"❌ 未知模型: {model_key}", "", [], False)
         return
     
     model_type = model_info.get("type", "openai")
@@ -894,7 +895,7 @@ def process_document_streaming_with_cache(
         for images, status, markdown in process_document_streaming(
             file_path, model_key, prompt, temperature, top_p, max_tokens
         ):
-            yield images, status, markdown, False
+            yield images, status, markdown, [], False
         return
     
     cache_mgr = get_cache_manager()
@@ -924,7 +925,7 @@ def process_document_streaming_with_cache(
 🔥 响应时间: <0.1s
 💾 缓存命中！"""
         
-        yield images, status, markdown, True
+        yield images, status, markdown, [], True
         return
     
     # 缓存未命中 - 执行流式处理
@@ -940,7 +941,7 @@ def process_document_streaming_with_cache(
     
     # 初始状态
     initial_status = f"📄 已加载 {total} 页，开始处理..."
-    yield (images, initial_status, "", False)
+    yield (images, initial_status, "", [], False)
     
     # 收集所有结果
     all_results = {}
@@ -982,7 +983,7 @@ def process_document_streaming_with_cache(
         else:
             # 多页的状态显示
             progress_bar = "█" * int(update["progress"] * 20) + "░" * (20 - int(update["progress"] * 20))
-            status = f"""🔄 处理中: {update['completed']}/{update['total_pages']} 页
+            status = f"""📄 处理中: {update['completed']}/{update['total_pages']} 页
 
 {progress_bar} {update['progress']*100:.1f}%
 
@@ -1000,7 +1001,7 @@ def process_document_streaming_with_cache(
         else:
             markdown = merge_results_ordered(all_results, total)
         
-        yield (images, status, markdown, False)
+        yield (images, status, markdown, [], False)
     
     # ============================================
     # 处理完成 - 构建最终状态（详细错误版）
@@ -1063,7 +1064,7 @@ def process_document_streaming_with_cache(
 
 📄 页数: 1 页
 ⏱️  处理时间: {total_elapsed:.1f}s
-⚠️ 错误原因: {error_reason}
+⚠️  错误原因: {error_reason}
 💡 建议: 检查网络连接或更换模型"""
         else:
             final_status = f"""❌ 解析失败！
@@ -1072,13 +1073,13 @@ def process_document_streaming_with_cache(
 
 📄 总页数: {total} 页
 ⏱️  总耗时: {total_elapsed:.1f}s
-⚠️ 错误原因: {error_reason}
+⚠️  错误原因: {error_reason}
 💡 建议: 检查网络连接或更换模型"""
         
         print(f"⚠️  解析失败: {error_reason}，跳过缓存")
     
     # 返回最终结果
-    yield (images, final_status, final_markdown, False)
+    yield (images, final_status, final_markdown, [], False)
 
 
 def get_cache_stats():
@@ -1119,20 +1120,15 @@ def clear_cache():
 import json
 
 def infer_with_custom_api(
-    pdf_path: str,  # 虽然叫 pdf_path，但也支持图片
+    pdf_path: str,
     api_base: str,
     timeout: int = 300
-) -> str:
+) -> Tuple[str, List[str]]:  # ✅ 修改返回类型：(markdown, layout_images)
     """
     调用自定义 API 进行文档解析（支持 PDF 和图片）
     
-    Args:
-        pdf_path: 文件路径（PDF 或图片）
-        api_base: API 地址（如 http://127.0.0.1:8002）
-        timeout: 超时时间（秒）
-    
     Returns:
-        解析结果（markdown + 隐藏的原始 JSON）
+        (markdown_text, layout_images_base64_list)
     """
     try:
         parse_url = f"{api_base}/parse"
@@ -1141,7 +1137,7 @@ def infer_with_custom_api(
         if not pdf_file.exists():
             raise FileNotFoundError(f"文件不存在: {pdf_path}")
         
-        # ✅ 修改 3：根据文件类型设置 MIME type
+        # 根据文件类型设置 MIME type
         suffix = pdf_file.suffix.lower()
         mime_types = {
             '.pdf': 'application/pdf',
@@ -1151,13 +1147,13 @@ def infer_with_custom_api(
         }
         mime_type = mime_types.get(suffix, 'application/octet-stream')
         
-        print(f"📤 上传文件到跨页合并 API: {parse_url}")
+        print(f"📤 上传文件到后端 API: {parse_url}")
         print(f"   文件: {pdf_file.name} ({pdf_file.stat().st_size / 1024:.1f}KB)")
-        print(f"   类型: {mime_type}")  # ✅ 显示文件类型
+        print(f"   类型: {mime_type}")
         
         # 发送请求
         with open(pdf_file, 'rb') as f:
-            files = {'file': (pdf_file.name, f, mime_type)}  # ✅ 使用正确的 MIME type
+            files = {'file': (pdf_file.name, f, mime_type)}
             response = requests.post(parse_url, files=files, timeout=timeout)
         
         # 检查响应
@@ -1169,44 +1165,53 @@ def infer_with_custom_api(
         # 保存原始 JSON
         original_json = json.dumps(result, ensure_ascii=False, indent=2)
         
+        # ✅ 提取 layout_images
+        layout_images = result.get('layout_images', [])
+        
         # 根据实际返回格式提取内容
         if result.get('success') and 'result' in result:
             document_text = result['result'].get('document_text')
             num_pages = result['result'].get('num_pages', 0)
             
             if document_text:
-                print(f"✅ 跨页模型解析完成")
+                print(f"✅ 模型解析完成")
                 print(f"   页数: {num_pages}")
                 print(f"   内容长度: {len(document_text)} 字符")
+                print(f"   版面图数量: {len(layout_images)}")  # ✅ 新增日志
                 print(f"   原始 JSON 长度: {len(original_json)} 字符")
                 
+                # 添加隐藏的原始 JSON
                 combined = f"{document_text}\n\n<!-- RAW_OUTPUT_START\n{original_json}\nRAW_OUTPUT_END -->"
-                return combined
+                
+                # ✅ 返回 markdown 和 layout_images
+                return combined, layout_images
             else:
                 error_msg = "API 返回的 document_text 为空"
                 print(f"⚠️  {error_msg}")
-                return f"<!-- Error: {error_msg} -->\n\n<!-- RAW_OUTPUT_START\n{original_json}\nRAW_OUTPUT_END -->"
+                error_markdown = f"<!-- Error: {error_msg} -->\n\n<!-- RAW_OUTPUT_START\n{original_json}\nRAW_OUTPUT_END -->"
+                return error_markdown, []
         else:
             error_msg = result.get('error', '未知错误')
             print(f"❌ API 返回失败: {error_msg}")
-            return f"<!-- Error: {error_msg} -->\n\n<!-- RAW_OUTPUT_START\n{original_json}\nRAW_OUTPUT_END -->"
+            error_markdown = f"<!-- Error: {error_msg} -->\n\n<!-- RAW_OUTPUT_START\n{original_json}\nRAW_OUTPUT_END -->"
+            return error_markdown, []
         
     except requests.exceptions.Timeout:
         error_msg = f"请求超时（超过 {timeout} 秒）"
         print(f"⚠️  {error_msg}")
-        return f"<!-- Error: {error_msg} -->"
+        return f"<!-- Error: {error_msg} -->", []
         
     except requests.exceptions.ConnectionError as e:
         error_msg = f"连接失败 - {str(e)}"
         print(f"⚠️  {error_msg}")
-        return f"<!-- Error: {error_msg} -->"
+        return f"<!-- Error: {error_msg} -->", []
         
     except Exception as e:
         error_msg = f"解析失败: {str(e)}"
         print(f"❌ {error_msg}")
         import traceback
         traceback.print_exc()
-        return f"<!-- Error: {error_msg} -->"
+        return f"<!-- Error: {error_msg} -->", []
 
 
 def check_custom_api_health(api_base: str) -> bool:
@@ -1243,8 +1248,13 @@ def check_custom_api_health(api_base: str) -> bool:
 def process_with_custom_model(
     file_path: str,
     model_key: str
-) -> Generator[Tuple[List[Image.Image], str, str, bool], None, None]:
-    """使用自定义 API 处理文档（支持 PDF 和图片）"""
+) -> Generator[Tuple[List[Image.Image], str, str, List[Image.Image], bool], None, None]:  # ✅ 添加 layout_images
+    """
+    使用自定义 API 处理文档（支持 PDF 和图片）
+    
+    Yields:
+        (images, status, markdown, layout_images, from_cache)
+    """
     file_path_obj = Path(file_path)
     model_info = config.MODELS[model_key]
     
@@ -1261,17 +1271,20 @@ def process_with_custom_model(
         if cached_result is not None:
             # 缓存命中
             try:
-                # ✅ 修改 1：根据文件类型加载预览
                 if file_path_obj.suffix.lower() == '.pdf':
                     images = pdf_to_images(file_path_obj)
                 else:
                     images = [Image.open(file_path_obj)]
             except Exception as e:
-                yield (None, f"❌ 文件加载失败: {str(e)}", "", False)
+                yield (None, f"❌ 文件加载失败: {str(e)}", "", [], False)
                 return
             
             markdown = cached_result["markdown"]
             pages = cached_result["metadata"]["pages"]
+            
+            # ✅ 从缓存中恢复 layout_images
+            layout_images_base64 = cached_result.get("layout_images", [])
+            layout_images = base64_list_to_images(layout_images_base64)
             
             status = f"""⚡ 从缓存加载！
 
@@ -1281,20 +1294,19 @@ def process_with_custom_model(
 🔥 响应时间: <0.1s
 💾 缓存命中！"""
             
-            yield images, status, markdown, True
+            yield images, status, markdown, layout_images, True
             return
     
     # ============================================
     # 2. 转换文件为预览图片
     # ============================================
     try:
-        # ✅ 修改 2：根据文件类型加载预览
         if file_path_obj.suffix.lower() == '.pdf':
             images = pdf_to_images(file_path_obj)
         else:
             images = [Image.open(file_path_obj)]
     except Exception as e:
-        yield (None, f"❌ 文件加载失败: {str(e)}", "", False)
+        yield (None, f"❌ 文件加载失败: {str(e)}", "", [], False)
         return
     
     total = len(images)
@@ -1303,27 +1315,29 @@ def process_with_custom_model(
     # 初始状态
     initial_status = f"""📄 已加载 {total} 页文档
 
-⏳ 正在解析整个文档（支持跨页内容自动合并）...
-
-💡 提示：此模型会自动处理跨页内容，无需逐页解析"""
+⏳ 正在解析整个文档（支持跨页内容自动合并）..."""
     
-    yield (images, initial_status, "", False)
+    yield (images, initial_status, "", [], False)
     
     # ============================================
-    # 3. 带心跳的 API 调用（保持不变）
+    # 3. 带心跳的 API 调用
     # ============================================
     result_container = {
         "done": False,
-        "result": None,
+        "markdown": None,
+        "layout_images": [],  # ✅ 新增
         "error": None
     }
     
     def api_call_thread():
         try:
-            result_container["result"] = infer_with_custom_api(
+            # ✅ 接收两个返回值
+            markdown, layout_images_base64 = infer_with_custom_api(
                 file_path, 
                 model_info["api_base"]
             )
+            result_container["markdown"] = markdown
+            result_container["layout_images"] = layout_images_base64
         except Exception as e:
             result_container["error"] = str(e)
         finally:
@@ -1360,11 +1374,11 @@ def process_with_custom_model(
 📄 总页数: {total} 页
 {hint}"""
         
-        yield (images, status, "", False)
+        yield (images, status, "", [], False)
         time.sleep(heartbeat_interval)
     
     # ============================================
-    # 4. 处理结果（保持不变）
+    # 4. 处理结果
     # ============================================
     elapsed = time.time() - start_time
     
@@ -1382,10 +1396,15 @@ def process_with_custom_model(
   2. 确认文档格式正确
   3. 查看日志获取详细信息"""
         
-        yield (images, error_status, "", False)
+        yield (images, error_status, "", [], False)
         return
     
-    markdown = result_container["result"]
+    markdown = result_container["markdown"]
+    layout_images_base64 = result_container["layout_images"]
+    
+    # ✅ 转换 base64 为 PIL Image
+    layout_images = base64_list_to_images(layout_images_base64)
+    
     is_valid = is_valid_result(markdown) if markdown else False
     
     if is_valid:
@@ -1395,11 +1414,13 @@ def process_with_custom_model(
 
 📄 总页数: {total} 页
 ⏱️  处理时间: {elapsed:.1f}s
+📐 版面图: {len(layout_images)} 张
 💾 已保存到缓存"""
         
         if config.CACHE_ENABLED:
             result = {
                 "markdown": markdown,
+                "layout_images": layout_images_base64,  # ✅ 保存 base64
                 "metadata": {
                     "pages": total,
                     "model": model_key,
@@ -1410,7 +1431,7 @@ def process_with_custom_model(
                 cache_key, result, file_path_obj.name,
                 model_key, 0, 0, 0
             )
-            print(f"✅ 有效结果已保存到缓存")
+            print(f"✅ 有效结果已保存到缓存（含 {len(layout_images)} 张版面图）")
         
     else:
         error_reason = extract_error_reason(markdown)
@@ -1428,4 +1449,28 @@ def process_with_custom_model(
         
         print(f"⚠️  解析失败: {error_reason}")
     
-    yield (images, final_status, markdown, False)
+    yield (images, final_status, markdown, layout_images, False)
+
+def base64_list_to_images(base64_list: List[str]) -> List[Image.Image]:
+    """
+    将 base64 字符串列表转换为 PIL Image 列表
+    
+    Args:
+        base64_list: base64 字符串列表
+    
+    Returns:
+        PIL Image 列表
+    """
+    images = []
+    for i, b64_str in enumerate(base64_list):
+        try:
+            # 解码 base64
+            img_data = base64.b64decode(b64_str)
+            # 转换为 PIL Image
+            img = Image.open(io.BytesIO(img_data))
+            images.append(img)
+        except Exception as e:
+            print(f"⚠️  转换第 {i+1} 张版面图失败: {e}")
+            continue
+    
+    return images

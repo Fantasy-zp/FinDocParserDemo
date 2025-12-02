@@ -142,12 +142,12 @@ def parse_document_streaming(
     max_tokens,
     custom_prompt
 ):
-    """流式解析文档(Phase 3.4 优化版)"""
+    """流式解析文档(Phase 3.6 - 支持版面图)"""
     try:
         # 验证文件
         is_valid, error_msg = utils.validate_file(file)
         if not is_valid:
-            yield None, f"❌ 错误:{error_msg}", "", None
+            yield None, f"❌ 错误:{error_msg}", "", None, None  # ✅ 添加 None
             return
         
         # 获取模型键
@@ -157,7 +157,7 @@ def parse_document_streaming(
         prompt = custom_prompt.strip() if custom_prompt.strip() else config.DEFAULT_PROMPT
         
         # 流式处理
-        for images, status, markdown, from_cache in utils.process_document_streaming_with_cache(
+        for images, status, markdown, layout_images, from_cache in utils.process_document_streaming_with_cache(
             file, 
             model_key, 
             prompt,
@@ -172,7 +172,7 @@ def parse_document_streaming(
             # 生成下载链接
             download_btn = create_download_button(markdown, Path(file).stem)
             
-            yield images, status, markdown, download_btn
+            yield images, status, markdown, layout_images, download_btn  # ✅ 添加 layout_images
         
     except Exception as e:
         error_msg = f"""❌ 解析失败
@@ -188,7 +188,7 @@ def parse_document_streaming(
         print(error_msg)
         import traceback
         traceback.print_exc()
-        yield None, error_msg, "", None
+        yield None, error_msg, "", None, None  # ✅ 添加 None
 
 
 def create_download_button(markdown, filename):
@@ -278,85 +278,118 @@ with gr.Blocks(
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
         
-            /* ✅ 原始文档 Gallery 优化 - 与左侧一致 */
-    #original-gallery {
-        max-height: 800px !important;  /* 与左侧一致 */
-        min-height: 400px !important;  /* 与左侧一致 */
-        overflow-y: auto !important;
-        overflow-x: hidden !important;
-    }
+        /* ✅ 原始文档 Gallery 优化 - 与左侧一致 */
+        #original-gallery {
+            max-height: 800px !important;  /* 与左侧一致 */
+            min-height: 400px !important;  /* 与左侧一致 */
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+        }
     
-    #original-gallery img {
-        object-fit: contain !important;
-        width: 100% !important;
-        height: auto !important;
-        max-height: none !important;  /* ✅ 关键：移除高度限制 */
-        display: block;
-        margin: 0 auto 12px auto;  /* 图片间距 */
-    }
+        #original-gallery img {
+            object-fit: contain !important;
+            width: 100% !important;
+            height: auto !important;
+            max-height: none !important;  /* ✅ 关键：移除高度限制 */
+            display: block;
+            margin: 0 auto 12px auto;  /* 图片间距 */
+        }
     
-    /* ✅ 确保内部容器不限制高度 */
-    #original-gallery > div,
-    #original-gallery .grid-wrap,
-    #original-gallery [role="grid"] {
-        height: auto !important;
-        max-height: none !important;
-    }
+        /* ✅ 确保内部容器不限制高度 */
+        #original-gallery > div,
+        #original-gallery .grid-wrap,
+        #original-gallery [role="grid"] {
+            height: auto !important;
+            max-height: none !important;
+        }
     
-    /* ✅ 每个图片项完整显示 */
-    #original-gallery .thumbnail-item,
-    #original-gallery .gallery-item {
-        height: auto !important;
-        max-height: none !important;
-        margin-bottom: 12px;
-    }
+        /* ✅ 每个图片项完整显示 */
+        #original-gallery .thumbnail-item,
+        #original-gallery .gallery-item {
+            height: auto !important;
+            max-height: none !important;
+            margin-bottom: 12px;
+        }
         
-           /* ✅ 上传预览 Gallery 样式 - 完整显示版 */
-    #upload-preview-gallery {
-        max-height: 800px !important;  /* ✅ 只限制容器最大高度 */
-        min-height: 400px !important;  /* ✅ 最小高度，避免太小 */
-        overflow-y: auto !important;
-        overflow-x: hidden !important;
-        border: 1px solid #e5e7eb;
-        border-radius: 8px;
-        background: #fafafa;
-        padding: 8px;
-    }
+        /* ✅ 上传预览 Gallery 样式 - 完整显示版 */
+        #upload-preview-gallery {
+            max-height: 800px !important;  /* ✅ 只限制容器最大高度 */
+            min-height: 400px !important;  /* ✅ 最小高度，避免太小 */
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            background: #fafafa;
+            padding: 8px;
+        }
     
-    /* ✅ 图片完整显示，不裁剪 */
-    #upload-preview-gallery img {
-        border: 2px solid #e5e7eb;
-        border-radius: 6px;
-        transition: all 0.2s ease;
-        object-fit: contain !important;  /* ✅ 保持比例，不裁剪 */
-        width: 100% !important;           /* ✅ 宽度填满 */
-        height: auto !important;          /* ✅ 高度自适应 */
-        max-height: none !important;      /* ✅ 移除最大高度限制 */
-        display: block;
-        margin: 0 auto;
-    }
+        /* ✅ 图片完整显示，不裁剪 */
+        #upload-preview-gallery img {
+            border: 2px solid #e5e7eb;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+            object-fit: contain !important;  /* ✅ 保持比例，不裁剪 */
+            width: 100% !important;           /* ✅ 宽度填满 */
+            height: auto !important;          /* ✅ 高度自适应 */
+            max-height: none !important;      /* ✅ 移除最大高度限制 */
+            display: block;
+            margin: 0 auto;
+        }
+        
+        #upload-preview-gallery img:hover {
+            border-color: #3b82f6;
+            transform: scale(1.02);
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+        }
     
-    #upload-preview-gallery img:hover {
-        border-color: #3b82f6;
-        transform: scale(1.02);
-        box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
-    }
-    
-    /* ✅ 确保内部容器不限制高度 */
-    #upload-preview-gallery > div,
-    #upload-preview-gallery .grid-wrap,
-    #upload-preview-gallery [role="grid"] {
-        height: auto !important;
-        max-height: none !important;
-    }
-    
-    /* ✅ 每个图片项完整显示 */
-    #upload-preview-gallery .thumbnail-item,
-    #upload-preview-gallery .gallery-item {
-        height: auto !important;
-        max-height: none !important;
-        margin-bottom: 12px;  /* 图片间距 */
-    }
+        /* ✅ 确保内部容器不限制高度 */
+        #upload-preview-gallery > div,
+        #upload-preview-gallery .grid-wrap,
+        #upload-preview-gallery [role="grid"] {
+            height: auto !important;
+            max-height: none !important;
+        }
+        
+        /* ✅ 每个图片项完整显示 */
+        #upload-preview-gallery .thumbnail-item,
+        #upload-preview-gallery .gallery-item {
+            height: auto !important;
+            max-height: none !important;
+            margin-bottom: 12px;  /* 图片间距 */
+        }
+
+       /* ✅ 版面分析 Gallery 样式 - 与原始文档完全一致 */
+        #layout-gallery {
+            max-height: 800px !important;  /* 与原始文档一致 */
+            min-height: 400px !important;  /* 与原始文档一致 */
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+        }
+
+        #layout-gallery img {
+            object-fit: contain !important;
+            width: 100% !important;
+            height: auto !important;
+            max-height: none !important;  /* ✅ 关键：移除高度限制 */
+            display: block;
+            margin: 0 auto 12px auto;  /* 图片间距 */
+        }
+
+        /* ✅ 确保内部容器不限制高度 */
+        #layout-gallery > div,
+        #layout-gallery .grid-wrap,
+        #layout-gallery [role="grid"] {
+            height: auto !important;
+            max-height: none !important;
+        }
+
+        /* ✅ 每个图片项完整显示 */
+        #layout-gallery .thumbnail-item,
+        #layout-gallery .gallery-item {
+            height: auto !important;
+            max-height: none !important;
+            margin-bottom: 12px;
+        }
         
         /* Source 代码框滚动 */
         #markdown-source {
@@ -619,7 +652,21 @@ with gr.Blocks(
                         value="",
                         elem_id="markdown-preview"
                     )
-                
+
+                # ✅ 新增：版面分析标签页
+                with gr.Tab("📐 版面分析"):
+                    layout_gallery = gr.Gallery(
+                        label="版面分析可视化",
+                        columns=2,
+                        rows=None,
+                        height=None,
+                        object_fit="contain",
+                        show_label=False,
+                        elem_id="layout-gallery",
+                        allow_preview=True,
+                        preview=True
+                    )
+
                 with gr.Tab("</> 源码"):
                     markdown_source = gr.Code(
                         value="",
@@ -741,7 +788,7 @@ with gr.Blocks(
             max_tokens,
             custom_prompt
         ],
-        outputs=[original_gallery, status_box, markdown_preview, download_html]
+        outputs=[original_gallery, status_box, markdown_preview, layout_gallery, download_html]
     )
     
     # 同步预览和源码(分离原始内容)
