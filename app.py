@@ -171,8 +171,12 @@ def parse_document_streaming(
             
             # 生成下载链接
             download_btn = create_download_button(markdown, Path(file).stem)
+
+            # ✅ [修复关键] 在这里直接分离 markdown 和 raw_content
+            clean_md, raw_content = split_markdown_and_raw(markdown)
             
-            yield images, status, markdown, layout_images, download_btn  # ✅ 添加 layout_images
+            # ✅ [修复关键] 将 raw_content 加入到 yield 返回值中 (注意顺序)
+            yield images, status, clean_md, layout_images, download_btn, raw_content
         
     except Exception as e:
         error_msg = f"""❌ 解析失败
@@ -188,7 +192,8 @@ def parse_document_streaming(
         print(error_msg)
         import traceback
         traceback.print_exc()
-        yield None, error_msg, "", None, None  # ✅ 添加 None
+        # ✅ 错误情况也要 yield 对应的 None
+        yield None, error_msg, "", None, None, ""
 
 
 def create_download_button(markdown, filename):
@@ -788,14 +793,15 @@ with gr.Blocks(
             max_tokens,
             custom_prompt
         ],
-        outputs=[original_gallery, status_box, markdown_preview, layout_gallery, download_html]
-    )
-    
-    # 同步预览和源码(分离原始内容)
-    markdown_preview.change(
-        fn=lambda x: split_markdown_and_raw(x)[1],  # 只取原始内容
-        inputs=[markdown_preview],
-        outputs=[markdown_source]  # 只更新 Source
+        # ✅ [修复关键] 添加 markdown_source 到输出列表
+        outputs=[
+            original_gallery, 
+            status_box, 
+            markdown_preview,   # 对应 clean_md
+            layout_gallery, 
+            download_html, 
+            markdown_source     # 对应 raw_content (新增)
+        ]
     )
     
     # 缓存管理

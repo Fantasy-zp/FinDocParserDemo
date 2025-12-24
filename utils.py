@@ -1372,7 +1372,7 @@ def process_with_custom_model(
 
 ⏱️  已用时间: {elapsed:.1f}s
 📄 总页数: {total} 页
-{hint}"""
+"""
         
         yield (images, status, "", [], False)
         time.sleep(heartbeat_interval)

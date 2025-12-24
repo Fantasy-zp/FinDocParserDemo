@@ -9,7 +9,7 @@ MODELS = {
     # 后端是用OCRFlux部署的模型
     "FinDocParserV2": {
         "name": "FinDocParserV2 ⭐",
-        "api_base": "http://127.0.0.1:8002",
+        "api_base": "http://192.168.100.230:8002",
         "model_id": "findoc-parser-v2",
         "type": "custom",  # ✅ 自定义类型
         "description": "支持跨页表格自动合并，专为复杂金融文档设计",

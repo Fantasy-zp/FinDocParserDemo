@@ -1,3 +1,4 @@
+.gradio/
 cache/
 .gitignore
 # Python
