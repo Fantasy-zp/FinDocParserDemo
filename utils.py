@@ -1165,8 +1165,8 @@ def infer_with_custom_api(
         # 保存原始 JSON
         original_json = json.dumps(result, ensure_ascii=False, indent=2)
         
-        # ✅ 提取 layout_images
-        layout_images = result.get('layout_images', [])
+        # ✅ 提取 layout_images（兼容旧版顶层 layout_images 和新版 result.output_imgs）
+        layout_images = result.get('layout_images') or (result.get('result') or {}).get('output_imgs', [])
         
         # 根据实际返回格式提取内容
         if result.get('success') and 'result' in result:
